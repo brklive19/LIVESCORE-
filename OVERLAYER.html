@@ -1,0 +1,1386 @@
+<!-- ============================================================
+     FILE 1 of 2  —  overlay.html
+     BRKLIVE 19 — OBS Browser Source
+     • Frame fills the FULL screen width (edge-to-edge)
+     • 16:9 aspect locked and centred vertically
+     • All screens render inside this frame
+     ============================================================ -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BRKLIVE 19 — OBS Overlay Source</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; }
+html, body {
+  margin: 0; padding: 0; width: 100%; height: 100%;
+  background: transparent !important; overflow: hidden;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================
+   FULL-WIDTH 16:9 FRAME — fills screen, keeps aspect ratio
+   ============================================================ */
+#ov-outer {
+  position: fixed; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+#ov-frame {
+  position: relative;
+  width: 1920px; height: 1080px;
+  transform-origin: center center;
+  /* scaled by JS to fill viewport width */
+}
+
+/* Lower-third band sits anchored to the bottom-left of the frame */
+#ov-root {
+  position: absolute; inset: 0;
+  display: flex;
+  --accent:   #00e0a4;
+  --wicket:   #ff4d5e;
+  --warn:     #ffb020;
+  --bar-bg:   #10161f;
+  --txt:      #ffffff;
+  --txt-soft: rgba(255,255,255,.55);
+  --txt-mute: rgba(255,255,255,.40);
+  --txt-faint:rgba(255,255,255,.28);
+  --divider:  rgba(255,255,255,.10);
+}
+#ov-root[data-mode="idle"],
+#ov-root[data-mode="scorebar"],
+#ov-root[data-mode="anim"] {
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 0 0 46px 46px;
+}
+#ov-root[data-mode="panel"],
+#ov-root[data-mode="target"] {
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+/* ============================================================
+   SCORE BAR — BASE STRUCTURE
+   ============================================================ */
+.ov-bar {
+  display: flex; align-items: stretch;
+  height: 62px; border-radius: 8px; overflow: hidden;
+  background: var(--bar-bg);
+  border: 1px solid var(--divider);
+  box-shadow: 0 14px 40px rgba(0,0,0,.55);
+  animation: ovIn .5s cubic-bezier(.2,.9,.25,1);
+}
+@keyframes ovIn {
+  from { opacity: 0; transform: translateX(-40px); }
+  to   { opacity: 1; transform: none; }
+}
+.ov-team {
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 18px 0 14px; position: relative;
+}
+.ov-team .code {
+  font-size: 21px; font-weight: 900; letter-spacing: .5px; color: var(--txt);
+}
+.ov-team .score {
+  font-size: 30px; font-weight: 900; letter-spacing: -1.5px;
+  color: var(--txt); font-variant-numeric: tabular-nums; line-height: 1;
+}
+.ov-team .score .slash { color: var(--txt-faint); margin: 0 1px; }
+.ov-team .score .wk { color: var(--wicket); }
+.ov-team .ovs {
+  font-size: 13px; font-weight: 700; color: var(--txt-soft);
+  font-variant-numeric: tabular-nums; margin-top: 3px;
+}
+.ov-div { width: 1px; background: var(--divider); }
+.ov-bats {
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 0 16px; gap: 3px;
+}
+.ov-bat {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13.5px; line-height: 1.15; white-space: nowrap;
+}
+.ov-bat .nm { font-weight: 600; color: var(--txt-soft); min-width: 108px; }
+.ov-bat .rs { font-weight: 800; color: var(--txt); font-variant-numeric: tabular-nums; }
+.ov-bat .bl { font-weight: 500; color: var(--txt-faint); font-variant-numeric: tabular-nums; font-size: 12px; }
+.ov-bat.on .nm { color: var(--txt); }
+.ov-bat.on .nm::after { content: '*'; color: var(--accent); font-weight: 900; margin-left: 3px; }
+.ov-bat.on .rs { color: var(--accent); }
+.ov-bat.dim .nm, .ov-bat.dim .rs, .ov-bat.dim .bl { opacity: .55; }
+.ov-bowl {
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 0 16px; gap: 2px;
+}
+.ov-bowl .lbl {
+  font-size: 8.5px; letter-spacing: 1.6px; font-weight: 800;
+  text-transform: uppercase; color: var(--txt-faint);
+}
+.ov-bowl .nm { font-size: 14px; font-weight: 700; color: var(--txt); white-space: nowrap; }
+.ov-bowl .fig { font-size: 12.5px; font-weight: 700; color: var(--txt-soft); font-variant-numeric: tabular-nums; }
+.ov-rates { display: flex; align-items: center; gap: 18px; padding: 0 18px; }
+.ov-rate { text-align: center; }
+.ov-rate .lbl {
+  font-size: 8.5px; letter-spacing: 1.6px; font-weight: 800;
+  text-transform: uppercase; color: var(--txt-faint);
+  display: block; margin-bottom: 3px;
+}
+.ov-rate .val {
+  font-size: 17px; font-weight: 900; color: var(--txt);
+  font-variant-numeric: tabular-nums; letter-spacing: -.5px;
+}
+.ov-rate.req .val { color: var(--warn); }
+
+/* ============================================================
+   THIS-OVER STRIP
+   ============================================================ */
+.ov-over {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 7px;
+  background: var(--bar-bg);
+  border: 1px solid var(--divider);
+  box-shadow: 0 8px 22px rgba(0,0,0,.4);
+  animation: ovIn .5s cubic-bezier(.2,.9,.25,1) .06s backwards;
+}
+.ov-over .ttl {
+  font-size: 8.5px; letter-spacing: 1.6px; font-weight: 800;
+  text-transform: uppercase; color: var(--txt-faint); margin-right: 4px;
+}
+.ov-over .b {
+  width: 27px; height: 27px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800;
+  background: var(--txt-faint); color: var(--bar-bg);
+  font-variant-numeric: tabular-nums;
+}
+.ov-over .b.r4 { background: #0e6c8f; color: #d5f4ff; }
+.ov-over .b.r6 { background: #6b3fbf; color: #f0e2ff; }
+.ov-over .b.w  { background: #b8232f; color: #ffe2e5; }
+.ov-over .b.e  { background: #a3760f; color: #fff3d6; font-size: 9.5px; }
+
+.ov-result {
+  padding: 12px 24px; border-radius: 8px;
+  background: linear-gradient(90deg, var(--accent), var(--warn));
+  color: #04231a; font-weight: 900; font-size: 20px; letter-spacing: -.3px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.5);
+  animation: ovIn .5s cubic-bezier(.2,.9,.25,1);
+}
+
+/* ============================================================
+   IDLE
+   ============================================================ */
+.ov-idle {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; border-radius: 8px;
+  background: var(--bar-bg); border: 1px solid var(--divider);
+  color: var(--txt-soft); font-size: 13px; font-weight: 600;
+  box-shadow: 0 12px 30px rgba(0,0,0,.4);
+}
+.ov-idle .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 10px var(--accent);
+}
+
+/* ============================================================
+   DESIGN STYLES — six layouts
+   ============================================================ */
+
+/* 1 — Classic */
+[data-design="classic"] .ov-team::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 6px; background: var(--team-color, #0ea5e9);
+}
+
+/* 2 — Stacked */
+[data-design="stacked"] .ov-bar {
+  flex-direction: column; height: auto;
+  border-radius: 10px; padding: 0;
+  overflow: visible; background: transparent;
+  border: none; box-shadow: none;
+}
+[data-design="stacked"] .ov-bar > .ov-team {
+  background: var(--bar-bg); border: 1px solid var(--divider);
+  border-radius: 10px 10px 0 0; padding: 8px 20px;
+  min-height: 54px; box-shadow: 0 8px 24px rgba(0,0,0,.5);
+  justify-content: space-between;
+}
+[data-design="stacked"] .ov-bar > .ov-team::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 5px; background: var(--team-color, #0ea5e9);
+  border-radius: 10px 0 0 0;
+}
+[data-design="stacked"] .ov-bar > .ov-team .code { font-size: 15px; }
+[data-design="stacked"] .ov-bar > .ov-team .score { font-size: 24px; }
+[data-design="stacked"] .ov-bar > .ov-team .ovs { font-size: 10px; margin: 0; }
+[data-design="stacked"] .ov-bar > .ov-bats,
+[data-design="stacked"] .ov-bar > .ov-bowl,
+[data-design="stacked"] .ov-bar > .ov-rates {
+  background: var(--bar-bg);
+  border-left: 1px solid var(--divider);
+  border-right: 1px solid var(--divider);
+  border-bottom: 1px solid var(--divider);
+  padding: 8px 20px; min-height: 44px;
+}
+[data-design="stacked"] .ov-bar > .ov-bats { flex-direction: row; gap: 24px; border-radius: 0; }
+[data-design="stacked"] .ov-bar > .ov-bowl { border-radius: 0; flex-direction: row; align-items: center; gap: 12px; }
+[data-design="stacked"] .ov-bar > .ov-bowl .lbl { display: none; }
+[data-design="stacked"] .ov-bar > .ov-rates {
+  border-radius: 0 0 10px 10px;
+  box-shadow: 0 14px 30px rgba(0,0,0,.5);
+  justify-content: space-around; gap: 22px;
+}
+[data-design="stacked"] .ov-bar > .ov-div { display: none; }
+[data-design="stacked"] .ov-bar > .ov-bats .ov-bat { font-size: 12.5px; }
+[data-design="stacked"] .ov-bar > .ov-bats .ov-bat .nm { min-width: 90px; }
+[data-design="stacked"] .ov-bar > .ov-bowl:last-child { border-radius: 0 0 10px 10px; box-shadow: 0 14px 30px rgba(0,0,0,.5); }
+[data-design="stacked"] .ov-bar > .ov-bats:last-child { border-radius: 0 0 10px 10px; box-shadow: 0 14px 30px rgba(0,0,0,.5); }
+
+/* 3 — Broadcast */
+[data-design="broadcast"] .ov-bar {
+  height: 78px; border-radius: 6px; position: relative;
+  border-bottom: 4px solid var(--accent);
+}
+[data-design="broadcast"] .ov-team {
+  background: var(--team-color, #0ea5e9);
+  padding: 0 26px 0 22px;
+}
+[data-design="broadcast"] .ov-team .code { color: #fff; font-size: 22px; text-shadow: 0 1px 4px rgba(0,0,0,.35); }
+[data-design="broadcast"] .ov-team .score { color: #fff; font-size: 42px; letter-spacing: -2px; text-shadow: 0 2px 6px rgba(0,0,0,.35); }
+[data-design="broadcast"] .ov-team .score .slash { color: rgba(255,255,255,.55); }
+[data-design="broadcast"] .ov-team .score .wk { color: rgba(255,255,255,.9); }
+[data-design="broadcast"] .ov-team .ovs { color: rgba(255,255,255,.9); font-size: 12px; }
+
+/* 4 — Modern */
+[data-design="modern"] .ov-bar {
+  height: 74px; border-radius: 40px; border: none;
+  background: linear-gradient(135deg, rgba(22,32,46,.98), rgba(10,16,24,.98));
+  box-shadow:
+    0 22px 60px rgba(0,0,0,.6),
+    0 0 0 1px rgba(255,255,255,.08) inset,
+    0 0 40px rgba(0,224,164,.10);
+}
+[data-design="modern"] .ov-team { padding-left: 28px; padding-right: 24px; }
+[data-design="modern"] .ov-team::before {
+  content: ''; position: absolute; left: 14px; top: 20px; bottom: 20px;
+  width: 4px; border-radius: 3px; background: var(--team-color, #0ea5e9);
+}
+[data-design="modern"] .ov-team .code { font-size: 17px; letter-spacing: .8px; }
+[data-design="modern"] .ov-team .score { font-size: 34px; letter-spacing: -2px; }
+[data-design="modern"] .ov-div { display: none; }
+[data-design="modern"] .ov-bats { padding: 0 24px; }
+[data-design="modern"] .ov-bowl { padding: 0 24px; }
+[data-design="modern"] .ov-rates { padding: 0 26px; }
+[data-design="modern"] .ov-rate .val { font-size: 19px; }
+
+/* 5 — Premium */
+[data-design="premium"] .ov-bar {
+  height: 84px; border-radius: 10px;
+  border: 1px solid rgba(255, 210, 120, .45);
+  background: linear-gradient(135deg, #0b1524 0%, #1a1730 55%, #2a1a20 100%);
+  box-shadow:
+    0 24px 60px rgba(0,0,0,.7),
+    0 0 0 1px rgba(255, 210, 120, .18) inset,
+    0 0 60px rgba(255, 180, 60, .14);
+  position: relative;
+}
+[data-design="premium"] .ov-bar::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, #ffd166, transparent);
+  border-radius: 10px 10px 0 0;
+}
+[data-design="premium"] .ov-team::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 7px;
+  background: linear-gradient(180deg, #ffd166, var(--team-color, #0ea5e9), #ffd166);
+  box-shadow: 0 0 14px rgba(255,209,102,.6);
+}
+[data-design="premium"] .ov-team .code {
+  background: linear-gradient(180deg, #fff5c2, #ffd166);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+[data-design="premium"] .ov-team .score {
+  font-size: 40px; letter-spacing: -2px;
+  background: linear-gradient(180deg, #ffffff, #ffe7a8);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+[data-design="premium"] .ov-team .score .slash,
+[data-design="premium"] .ov-team .score .wk {
+  background: none; -webkit-text-fill-color: initial;
+  color: var(--wicket); opacity: .95;
+}
+
+/* 6 — Corner */
+[data-design="corner"] .ov-bar {
+  height: auto; flex-direction: column;
+  border-radius: 4px 14px 14px 4px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #0d131b 0%, #05080d 100%);
+  border-left: 5px solid var(--accent);
+  padding: 0;
+  box-shadow: 0 16px 44px rgba(0,0,0,.6);
+}
+[data-design="corner"] .ov-bar > .ov-team {
+  padding: 6px 20px; min-height: 44px;
+  border-bottom: 1px solid var(--divider);
+  justify-content: space-between;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--team-color, #0ea5e9) 14%, transparent),
+    transparent 60%);
+}
+[data-design="corner"] .ov-bar > .ov-team::before { display: none; }
+[data-design="corner"] .ov-bar > .ov-team .code { font-size: 16px; letter-spacing: .4px; }
+[data-design="corner"] .ov-bar > .ov-team .score { font-size: 26px; letter-spacing: -1px; }
+[data-design="corner"] .ov-bar > .ov-team .ovs { font-size: 10px; margin: 0; }
+[data-design="corner"] .ov-bar > .ov-div { display: none; }
+[data-design="corner"] .ov-bar > .ov-bats,
+[data-design="corner"] .ov-bar > .ov-bowl,
+[data-design="corner"] .ov-bar > .ov-rates {
+  padding: 8px 20px; min-height: 38px;
+  border-bottom: 1px solid var(--divider);
+}
+[data-design="corner"] .ov-bar > .ov-bats { flex-direction: row; gap: 26px; }
+[data-design="corner"] .ov-bar > .ov-bowl { flex-direction: row; align-items: center; gap: 10px; }
+[data-design="corner"] .ov-bar > .ov-bowl .lbl { display: none; }
+[data-design="corner"] .ov-bar > .ov-rates { border-bottom: none; gap: 26px; }
+
+/* ============================================================
+   INFO PANELS (centred in frame)
+   ============================================================ */
+.ov-panel {
+  background: var(--bar-bg);
+  border: 1px solid var(--divider);
+  border-radius: 14px;
+  box-shadow: 0 22px 60px rgba(0,0,0,.6);
+  padding: 26px 32px 28px;
+  min-width: 640px; max-width: 1400px;
+  animation: panelIn .5s cubic-bezier(.2,.9,.25,1);
+  color: var(--txt); position: relative; overflow: hidden;
+}
+@keyframes panelIn {
+  from { opacity: 0; transform: scale(.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.ov-panel::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: 5px; background: var(--accent);
+}
+.panel-label {
+  font-size: 10px; letter-spacing: 2.4px; font-weight: 800;
+  text-transform: uppercase; color: var(--accent);
+  margin-bottom: 14px; display: flex; align-items: center; gap: 10px;
+}
+.panel-label .dash { flex: 1; height: 1px; background: var(--divider); }
+.panel-title { font-size: 30px; font-weight: 900; letter-spacing: -.8px; color: var(--txt); line-height: 1.1; }
+.panel-sub { font-size: 15px; font-weight: 600; color: var(--txt-soft); margin-top: 8px; }
+.panel-line { font-size: 12.5px; font-weight: 600; color: var(--txt-faint); margin-top: 4px; letter-spacing: .4px; }
+.panel-teams {
+  display: flex; align-items: center; gap: 22px;
+  margin-top: 20px; padding-top: 18px;
+  border-top: 1px solid var(--divider);
+  font-size: 22px; font-weight: 800; letter-spacing: -.4px;
+}
+.panel-teams .vs {
+  font-size: 12px; letter-spacing: 1.8px;
+  color: var(--txt-faint); font-weight: 800; text-transform: uppercase;
+}
+.panel-big {
+  font-size: 38px; font-weight: 900; letter-spacing: -1px;
+  color: var(--txt); line-height: 1.1; margin: 4px 0 2px;
+}
+.panel-big .hl { color: var(--accent); }
+.panel-big .wk { color: var(--wicket); }
+.panel-stat-row {
+  display: flex; gap: 34px; margin-top: 18px;
+  padding-top: 16px; border-top: 1px solid var(--divider);
+}
+.panel-stat .lbl {
+  font-size: 9.5px; letter-spacing: 1.7px; font-weight: 800;
+  text-transform: uppercase; color: var(--txt-faint);
+  display: block; margin-bottom: 5px;
+}
+.panel-stat .val {
+  font-size: 22px; font-weight: 900; color: var(--txt);
+  font-variant-numeric: tabular-nums; letter-spacing: -.5px;
+}
+.panel-stat .val.accent { color: var(--accent); }
+.panel-stat .val.warn   { color: var(--warn); }
+.panel-stat .val.wkt    { color: var(--wicket); }
+.panel-table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 6px; }
+.panel-table thead th {
+  text-align: right; padding: 9px 8px;
+  font-size: 10px; letter-spacing: 1.5px; font-weight: 800;
+  text-transform: uppercase; color: var(--txt-faint);
+  border-bottom: 1px solid var(--divider);
+}
+.panel-table thead th:first-child { text-align: left; }
+.panel-table tbody td {
+  padding: 9px 8px; text-align: right;
+  border-bottom: 1px solid var(--divider);
+  font-variant-numeric: tabular-nums;
+  color: var(--txt); font-weight: 600;
+}
+.panel-table tbody td:first-child { text-align: left; font-weight: 700; }
+.panel-table tbody tr:last-child td { border-bottom: none; }
+.panel-table .muted { color: var(--txt-faint); font-weight: 500; }
+.panel-table .how { font-size: 10.5px; color: var(--txt-faint); font-weight: 500; display: block; margin-top: 2px; }
+.panel-table .accent { color: var(--accent); }
+.panel-footer {
+  margin-top: 14px; padding-top: 12px;
+  border-top: 1px solid var(--divider);
+  font-size: 12.5px; color: var(--txt-faint); font-weight: 600;
+  display: flex; gap: 22px; flex-wrap: wrap;
+}
+.fow-list { display: flex; flex-direction: column; }
+.fow-item {
+  display: grid; grid-template-columns: 70px 1fr auto;
+  gap: 16px; align-items: center; padding: 10px 0;
+  border-bottom: 1px solid var(--divider);
+}
+.fow-item:last-child { border-bottom: none; }
+.fow-item .wkt { font-size: 17px; font-weight: 900; color: var(--wicket); font-variant-numeric: tabular-nums; }
+.fow-item .nm { font-size: 15px; font-weight: 700; color: var(--txt); }
+.fow-item .nm small { font-size: 11px; color: var(--txt-faint); font-weight: 500; display: block; }
+.fow-item .ov { font-size: 13px; font-weight: 700; color: var(--txt-faint); font-variant-numeric: tabular-nums; }
+.player-head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 4px; }
+.player-name { font-size: 30px; font-weight: 900; letter-spacing: -.6px; color: var(--txt); }
+.player-tag {
+  font-size: 10px; letter-spacing: 1.7px; font-weight: 800;
+  text-transform: uppercase; color: var(--accent);
+  padding: 4px 9px; border-radius: 5px;
+  background: rgba(0,224,164,.14);
+}
+.player-tag.dim { color: var(--txt-faint); background: rgba(255,255,255,.06); }
+.partner-line {
+  display: flex; align-items: center; gap: 16px;
+  margin-top: 18px; padding: 14px 18px;
+  background: rgba(255,255,255,.04);
+  border-radius: 10px; border: 1px solid var(--divider);
+  font-size: 13.5px; font-weight: 600; color: var(--txt-soft);
+}
+.partner-line b { color: var(--txt); }
+.summary-team { padding: 16px 0; border-bottom: 1px solid var(--divider); }
+.summary-team:last-of-type { border-bottom: none; }
+.summary-team .hdr { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.summary-team .hdr .color { width: 5px; height: 22px; border-radius: 3px; }
+.summary-team .hdr .name { font-size: 17px; font-weight: 800; letter-spacing: -.3px; }
+.summary-team .hdr .score {
+  margin-left: auto; font-size: 26px; font-weight: 900;
+  font-variant-numeric: tabular-nums; letter-spacing: -1px;
+}
+.summary-team .hdr .score .wk { color: var(--wicket); }
+.summary-team .hdr .score .ov {
+  font-size: 12px; font-weight: 700; color: var(--txt-faint);
+  margin-left: 8px; letter-spacing: 0;
+}
+.summary-team .top {
+  font-size: 13px; color: var(--txt-soft); font-weight: 600;
+  display: flex; gap: 22px; flex-wrap: wrap;
+}
+.summary-team .top b { color: var(--txt); }
+
+/* ============================================================
+   TARGET PANEL — full-frame centre
+   ============================================================ */
+.ov-target {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 36px; text-align: center;
+  padding: 60px 80px;
+  animation: targetIn .55s cubic-bezier(.2,.9,.25,1);
+}
+@keyframes targetIn {
+  from { opacity: 0; transform: scale(.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.target-team {
+  font-size: 104px; font-weight: 900; letter-spacing: -4px; line-height: 1;
+  color: var(--accent);
+  text-shadow:
+    0 0 60px var(--accent),
+    0 0 140px rgba(0,224,164,.55),
+    0 4px 24px rgba(0,0,0,.6);
+}
+.target-line { display: flex; align-items: baseline; gap: 30px; }
+.target-label {
+  font-size: 34px; font-weight: 900; letter-spacing: 14px;
+  text-transform: uppercase; color: #ffffff;
+  text-shadow: 0 2px 24px rgba(0,0,0,.9), 0 0 40px rgba(255,255,255,.35);
+}
+.target-big {
+  font-size: 200px; font-weight: 900; letter-spacing: -10px;
+  line-height: .82; color: var(--warn);
+  font-variant-numeric: tabular-nums;
+  text-shadow:
+    0 0 70px var(--warn),
+    0 0 160px rgba(255,176,32,.55),
+    0 6px 30px rgba(0,0,0,.7);
+}
+.target-big.small { font-size: 150px; letter-spacing: -8px; }
+.target-unit {
+  font-size: 44px; font-weight: 900; letter-spacing: 10px;
+  text-transform: uppercase; color: #ffffff;
+  text-shadow: 0 2px 24px rgba(0,0,0,.9), 0 0 40px rgba(255,255,255,.35);
+}
+.target-empty {
+  font-size: 60px; font-weight: 900; letter-spacing: -2px;
+  color: var(--accent); text-shadow: 0 0 60px var(--accent);
+}
+
+/* ============================================================
+   ANIMATIONS — LOWER-THIRD
+   ============================================================ */
+.anim-lower {
+  display: flex; align-items: center; gap: 26px;
+  padding: 26px 40px; border-radius: 22px;
+  min-width: 640px; overflow: hidden; position: relative;
+  box-shadow:
+    0 22px 60px rgba(0,0,0,.6),
+    0 0 0 1px rgba(255,255,255,.12) inset;
+  animation: animLower 3s cubic-bezier(.2,.9,.25,1) forwards;
+}
+@keyframes animLower {
+  0%   { opacity: 0; transform: translateX(-100px) scale(.92); }
+  12%  { opacity: 1; transform: translateX(0) scale(1.04); }
+  18%  { transform: translateX(0) scale(1); }
+  82%  { opacity: 1; transform: translateX(0) scale(1); }
+  100% { opacity: 0; transform: translateX(-40px) scale(1); }
+}
+.anim-lower-four {
+  background: linear-gradient(135deg, #0d3b52 0%, #0e6c8f 55%, #7ee0ff 100%);
+  --badge-bg: linear-gradient(135deg, #d9f7ff, #7ee0ff);
+  --badge-fg: #0a2632; --glow: rgba(126,224,255,.65);
+}
+.anim-lower-six {
+  background: linear-gradient(135deg, #4a1108 0%, #b8232f 45%, #ffb020 100%);
+  --badge-bg: linear-gradient(135deg, #ffd166, #ff4d5e);
+  --badge-fg: #1a0507; --glow: rgba(255,80,60,.65);
+}
+.anim-lower-wicket {
+  background: linear-gradient(135deg, #3a0e12 0%, #b8232f 55%, #ff4d5e 100%);
+  --badge-bg: linear-gradient(135deg, #ff8a95, #ff4d5e);
+  --badge-fg: #2a0508; --glow: rgba(255,77,94,.65);
+}
+.anim-lower-freehit {
+  background: linear-gradient(135deg, #3b2c04 0%, #a3760f 50%, #facc15 100%);
+  --badge-bg: linear-gradient(135deg, #fff5c2, #facc15);
+  --badge-fg: #1c1917; --glow: rgba(250,204,21,.65);
+}
+.anim-lower-hattrick {
+  background: linear-gradient(135deg, #1d1147 0%, #6b3fbf 55%, #c79bff 100%);
+  --badge-bg: linear-gradient(135deg, #e9dcff, #c79bff);
+  --badge-fg: #1d1147; --glow: rgba(199,155,255,.65);
+}
+.anim-lower-runout {
+  background: linear-gradient(135deg, #3a1c04 0%, #b8550f 50%, #ffb020 100%);
+  --badge-bg: linear-gradient(135deg, #ffd166, #ffb020);
+  --badge-fg: #2a1400; --glow: rgba(255,150,60,.65);
+}
+.anim-badge {
+  width: 156px; height: 156px; border-radius: 22px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--badge-bg); color: var(--badge-fg);
+  font-size: 112px; font-weight: 900; letter-spacing: -6px; line-height: 1;
+  flex: 0 0 auto;
+  box-shadow: 0 14px 34px rgba(0,0,0,.5), 0 0 44px var(--glow);
+  animation: badgeIn .9s cubic-bezier(.2,.9,.25,1) forwards;
+}
+.anim-badge.two-char { font-size: 80px; letter-spacing: -4px; }
+.anim-badge.emoji    { font-size: 100px; }
+@keyframes badgeIn {
+  0%   { transform: scale(.3) rotate(-22deg); opacity: 0; }
+  45%  { transform: scale(1.18) rotate(5deg);  opacity: 1; }
+  65%  { transform: scale(1)    rotate(0); }
+  80%  { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+.anim-txt { display: flex; flex-direction: column; gap: 6px; }
+.anim-big {
+  font-size: 74px; font-weight: 900; letter-spacing: -2px; line-height: 1;
+  color: #fff;
+  text-shadow: 0 4px 22px rgba(0,0,0,.55), 0 0 44px var(--glow);
+}
+.anim-sub {
+  font-size: 15px; font-weight: 800; letter-spacing: 8px;
+  text-transform: uppercase; color: rgba(255,255,255,.78);
+}
+.anim-balls-mini { display: flex; gap: 12px; margin-left: auto; padding-right: 8px; }
+.anim-balls-mini span {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff5c2, #facc15 30%, #b8232f 70%, #7a0b18);
+  box-shadow: 0 4px 14px rgba(0,0,0,.5), 0 0 22px rgba(250,204,21,.6);
+  animation: miniBallIn .65s cubic-bezier(.4,1.4,.5,1) forwards;
+  opacity: 0;
+}
+.anim-balls-mini span:nth-child(1) { animation-delay: .30s; }
+.anim-balls-mini span:nth-child(2) { animation-delay: .55s; }
+.anim-balls-mini span:nth-child(3) { animation-delay: .80s; }
+@keyframes miniBallIn {
+  0%   { opacity: 0; transform: translateY(-30px) scale(.4); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.anim-streaks { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.anim-streaks i {
+  position: absolute; height: 4px; border-radius: 3px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.9), transparent);
+  animation: streakSwipe 1.3s ease-out forwards;
+  opacity: 0;
+}
+@keyframes streakSwipe {
+  0%   { opacity: 0; transform: translateX(-100%); }
+  20%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(140%); }
+}
+</style>
+</head>
+<body>
+
+<div id="ov-outer">
+  <div id="ov-frame">
+    <div id="ov-root" data-mode="idle" data-design="classic"></div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   BRKLIVE 19 — OVERLAY
+   ============================================================ */
+const LS_KEY  = 'brklive19.studio.v1';
+const CH_NAME = 'brklive19-overlay';
+const channel = ('BroadcastChannel' in window) ? new BroadcastChannel(CH_NAME) : null;
+
+const ANIM_DURATION = 3000;
+
+let state = null;
+let lastRaw = '';
+let lastAnimId = null;
+let activeAnimation = null;
+let animClearTimeout = null;
+
+/* ---------- Helpers ---------- */
+function hexToRgba(hex, a) {
+  if (!hex) return `rgba(255,255,255,${a})`;
+  let h = String(hex).replace('#','');
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  const r = parseInt(h.slice(0,2),16) || 0;
+  const g = parseInt(h.slice(2,4),16) || 0;
+  const b = parseInt(h.slice(4,6),16) || 0;
+  return `rgba(${r},${g},${b},${a})`;
+}
+function oversStr(b) { return `${Math.floor(b/6)}.${b%6}`; }
+function rr(r, b) { return b ? (r/(b/6)).toFixed(2) : '0.00'; }
+function bowlerFig(b) { return `${Math.floor(b.balls/6)}-${b.maidens}-${b.runs}-${b.wkts}`; }
+function shortName(n) {
+  if (!n) return '—';
+  const p = n.trim().split(/\s+/);
+  return p.length === 1 ? p[0] : p[0][0] + ' ' + p.slice(1).join(' ');
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+function teamLabel(t) { return t.short || t.name || '—'; }
+function sr(r, b) { return b ? ((r/b)*100).toFixed(1) : '0.0'; }
+function econ(r, b) { return b ? (r/(b/6)).toFixed(2) : '0.00'; }
+
+/* ---------- Theme ---------- */
+function applyTheme(o) {
+  const root = document.getElementById('ov-root');
+  root.style.setProperty('--accent', o.accent || '#00e0a4');
+  root.style.setProperty('--wicket', o.wicket || '#ff4d5e');
+  root.style.setProperty('--warn',   o.warn   || '#ffb020');
+  root.style.setProperty('--bar-bg', o.barBg  || '#10161f');
+  const txt = o.textColor || '#ffffff';
+  root.style.setProperty('--txt', txt);
+  root.style.setProperty('--txt-soft',  hexToRgba(txt, 0.55));
+  root.style.setProperty('--txt-mute',  hexToRgba(txt, 0.40));
+  root.style.setProperty('--txt-faint', hexToRgba(txt, 0.28));
+  root.style.setProperty('--divider',   hexToRgba(txt, 0.10));
+}
+
+/* ============================================================
+   FIT — fill screen width, keep 16:9 aspect
+   ============================================================ */
+function fit() {
+  const frame = document.getElementById('ov-frame');
+  if (!frame) return;
+  const userScale = ((state && state.overlay && state.overlay.scale) || 100) / 100;
+
+  /* Fill the screen width edge-to-edge. Because the frame is
+     already 16:9 (1920×1080), scaling by width/1920 keeps the
+     aspect ratio while making the overlay as wide as the screen. */
+  const scaleW = window.innerWidth / 1920;
+  frame.style.transform = `scale(${scaleW * userScale})`;
+}
+window.addEventListener('resize', fit);
+
+/* ============================================================
+   ANIMATION ENGINE
+   ============================================================ */
+function checkAnimation() {
+  if (!state) return;
+  const a = state.animation;
+  if (!a || !a.id || !a.type) return;
+  if (a.id === lastAnimId) return;
+
+  lastAnimId = a.id;
+  activeAnimation = { type: a.type, endsAt: Date.now() + ANIM_DURATION };
+
+  clearTimeout(animClearTimeout);
+  animClearTimeout = setTimeout(() => {
+    activeAnimation = null;
+    render();
+  }, ANIM_DURATION + 60);
+
+  render();
+}
+
+function renderAnimation(type) {
+  switch (type) {
+    case 'four':
+      return `
+        <div class="anim-lower anim-lower-four">
+          <div class="anim-badge">4</div>
+          <div class="anim-txt">
+            <div class="anim-big">FOUR</div>
+            <div class="anim-sub">BOUNDARY</div>
+          </div>
+        </div>`;
+    case 'six':
+      return `
+        <div class="anim-lower anim-lower-six">
+          <div class="anim-badge">6</div>
+          <div class="anim-txt">
+            <div class="anim-big">SIX</div>
+            <div class="anim-sub">MAXIMUM</div>
+          </div>
+        </div>`;
+    case 'wicket':
+      return `
+        <div class="anim-lower anim-lower-wicket">
+          <div class="anim-badge">W</div>
+          <div class="anim-txt">
+            <div class="anim-big">WICKET</div>
+            <div class="anim-sub">OUT!</div>
+          </div>
+        </div>`;
+    case 'freehit':
+      return `
+        <div class="anim-lower anim-lower-freehit">
+          <div class="anim-badge emoji">⚡</div>
+          <div class="anim-txt">
+            <div class="anim-big">FREE HIT</div>
+            <div class="anim-sub">NO EXTRA RISK</div>
+          </div>
+        </div>`;
+    case 'hattrick':
+      return `
+        <div class="anim-lower anim-lower-hattrick">
+          <div class="anim-badge">3</div>
+          <div class="anim-txt">
+            <div class="anim-big">HAT-TRICK</div>
+            <div class="anim-sub">3 IN 3</div>
+          </div>
+          <div class="anim-balls-mini"><span></span><span></span><span></span></div>
+        </div>`;
+    case 'runout': {
+      const streaks = Array.from({ length: 10 }, () => {
+        const top   = 10 + Math.random() * 80;
+        const width = 150 + Math.random() * 400;
+        const delay = (Math.random() * .8).toFixed(2);
+        const dur   = (1.0 + Math.random() * .7).toFixed(2);
+        return `<i style="top:${top}%; width:${width}px;
+                   animation-delay:${delay}s; animation-duration:${dur}s;"></i>`;
+      }).join('');
+      return `
+        <div class="anim-lower anim-lower-runout">
+          <div class="anim-streaks">${streaks}</div>
+          <div class="anim-badge two-char">RO</div>
+          <div class="anim-txt">
+            <div class="anim-big">RUN OUT</div>
+            <div class="anim-sub">GONE!</div>
+          </div>
+        </div>`;
+    }
+  }
+  return '';
+}
+
+/* ============================================================
+   PANEL HELPERS
+   ============================================================ */
+function panelWrap(label, body) {
+  return `
+    <div class="ov-panel">
+      <div class="panel-label">${esc(label)}<span class="dash"></span></div>
+      ${body}
+    </div>`;
+}
+function innExists(idx) { return state.innings && state.innings[idx]; }
+
+/* ============================================================
+   INFO PANELS
+   ============================================================ */
+function renderTournamentPanel() {
+  const m = state.meta;
+  const tossLine = m.tossWinner !== undefined && m.tossWinner !== null && m.tossWinner !== ''
+    ? `${esc(m.teams[+m.tossWinner].name)} won the toss and elected to ${esc(m.tossDecision || 'bat').toUpperCase()}`
+    : '';
+  return panelWrap('Tournament', `
+    <div class="panel-title">${esc(m.tournament || 'Tournament')}</div>
+    <div class="panel-sub">${esc(m.matchTitle || '')}${m.venue ? ' · ' + esc(m.venue) : ''}</div>
+    ${m.matchDate ? `<div class="panel-line">${esc(m.matchDate)}</div>` : ''}
+    <div class="panel-teams">
+      <span style="color:${esc(m.teams[0].color)}">${esc(m.teams[0].name)}</span>
+      <span class="vs">vs</span>
+      <span style="color:${esc(m.teams[1].color)}">${esc(m.teams[1].name)}</span>
+    </div>
+    ${tossLine ? `<div class="panel-line" style="margin-top:14px">${tossLine}</div>` : ''}
+  `);
+}
+function renderMatchPanel() {
+  const m = state.meta;
+  return panelWrap('Match Info', `
+    <div class="panel-teams" style="margin-top:0;padding-top:0;border-top:none">
+      <span style="color:${esc(m.teams[0].color)}">${esc(m.teams[0].name)}</span>
+      <span class="vs">vs</span>
+      <span style="color:${esc(m.teams[1].color)}">${esc(m.teams[1].name)}</span>
+    </div>
+    <div class="panel-title" style="font-size:22px;margin-top:16px">${esc(m.matchTitle || '')}</div>
+    ${m.tournament ? `<div class="panel-sub">${esc(m.tournament)}</div>` : ''}
+    ${m.venue ? `<div class="panel-line">${esc(m.venue)}</div>` : ''}
+    ${m.matchDate ? `<div class="panel-line">${esc(m.matchDate)}</div>` : ''}
+    <div class="panel-stat-row">
+      <div class="panel-stat"><span class="lbl">Format</span><span class="val">${m.overs} Overs</span></div>
+      <div class="panel-stat"><span class="lbl">Batting First</span>
+        <span class="val accent">${esc(m.teams[+m.battingFirst].short || m.teams[+m.battingFirst].name)}</span>
+      </div>
+    </div>
+  `);
+}
+function renderTossPanel() {
+  const m = state.meta;
+  const hasToss = m.tossWinner !== undefined && m.tossWinner !== null && m.tossWinner !== '';
+  if (!hasToss) return panelWrap('Toss', `<div class="panel-sub">Toss not recorded yet.</div>`);
+  const winner = m.teams[+m.tossWinner];
+  const decision = (m.tossDecision || 'bat').toUpperCase();
+  return panelWrap('Toss', `
+    <div class="panel-big">
+      <span style="color:${esc(winner.color)}">${esc(winner.name)}</span>
+      <span class="hl"> won the toss</span>
+    </div>
+    <div class="panel-sub" style="font-size:20px;margin-top:12px">
+      and elected to <b style="color:var(--accent)">${esc(decision)}</b>
+    </div>
+    <div class="panel-teams" style="margin-top:22px">
+      <span style="color:${esc(m.teams[0].color)}">${esc(m.teams[0].short || m.teams[0].name)}</span>
+      <span class="vs">vs</span>
+      <span style="color:${esc(m.teams[1].color)}">${esc(m.teams[1].short || m.teams[1].name)}</span>
+    </div>
+  `);
+}
+function renderBattingPanel(idx) {
+  if (!innExists(idx)) {
+    return panelWrap(
+      idx === 0 ? '1st Innings — Batting' : '2nd Innings — Batting',
+      `<div class="panel-sub">Innings has not started yet.</div>`
+    );
+  }
+  const inn = state.innings[idx];
+  const bt = state.meta.teams[inn.battingTeam];
+  const label = `${idx === 0 ? '1st' : '2nd'} Innings — ${bt.name} Batting`;
+  const rows = inn.batsmen.filter(b => b.b > 0 || b.out).map(b => {
+    const notOut = !b.out && (b.b > 0 || inn.batsmen.indexOf(b) === inn.striker || inn.batsmen.indexOf(b) === inn.nonStriker);
+    const onStrike = !b.out && (inn.batsmen.indexOf(b) === inn.striker) && !inn.done;
+    return `
+      <tr>
+        <td>${esc(b.name)}${onStrike ? ' <span class="accent">*</span>' : ''}
+          <span class="how">${esc(b.how || (notOut ? 'not out' : ''))}</span>
+        </td>
+        <td>${b.r}</td>
+        <td class="muted">${b.b}</td>
+        <td class="muted">${b.f4}</td>
+        <td class="muted">${b.f6}</td>
+        <td class="muted">${sr(b.r, b.b)}</td>
+      </tr>`;
+  }).join('');
+  const ex = inn.extras;
+  const totalExtras = ex.w + ex.nb + ex.b + ex.lb;
+  return panelWrap(label, `
+    <div class="panel-big">
+      ${bt.short || bt.name} ${inn.runs}<span class="wk">/${inn.wickets}</span>
+      <span style="font-size:15px;color:var(--txt-faint);font-weight:700;margin-left:10px">
+        (${oversStr(inn.balls)} / ${state.meta.overs} ov)
+      </span>
+    </div>
+    <table class="panel-table">
+      <thead><tr><th>Batter</th><th>R</th><th>B</th><th>4s</th><th>6s</th><th>SR</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" class="muted">No balls faced yet.</td></tr>'}</tbody>
+    </table>
+    <div class="panel-footer">
+      <span>Extras: <b style="color:var(--txt)">${totalExtras}</b>
+        (w${ex.w}, nb${ex.nb}, b${ex.b}, lb${ex.lb})</span>
+      <span>CRR: <b style="color:var(--txt)">${rr(inn.runs, inn.balls)}</b></span>
+      ${inn.target ? `<span>Target: <b style="color:var(--warn)">${inn.target}</b></span>` : ''}
+    </div>
+  `);
+}
+function renderBowlingPanel(idx) {
+  if (!innExists(idx)) {
+    return panelWrap(
+      idx === 0 ? '1st Innings — Bowling' : '2nd Innings — Bowling',
+      `<div class="panel-sub">Innings has not started yet.</div>`
+    );
+  }
+  const inn = state.innings[idx];
+  const bw = state.meta.teams[inn.bowlingTeam];
+  const label = `${idx === 0 ? '1st' : '2nd'} Innings — ${bw.name} Bowling`;
+  const rows = inn.bowlers.filter(b => b.balls > 0).map(b => `
+    <tr>
+      <td>${esc(b.name)}</td>
+      <td>${oversStr(b.balls)}</td>
+      <td class="muted">${b.maidens}</td>
+      <td>${b.runs}</td>
+      <td class="accent">${b.wkts}</td>
+      <td class="muted">${econ(b.runs, b.balls)}</td>
+    </tr>`).join('');
+  return panelWrap(label, `
+    <div class="panel-big">
+      ${state.meta.teams[inn.battingTeam].short || state.meta.teams[inn.battingTeam].name}
+      ${inn.runs}<span class="wk">/${inn.wickets}</span>
+      <span style="font-size:15px;color:var(--txt-faint);font-weight:700;margin-left:10px">
+        (${oversStr(inn.balls)} ov)
+      </span>
+    </div>
+    <table class="panel-table">
+      <thead><tr><th>Bowler</th><th>O</th><th>M</th><th>R</th><th>W</th><th>Econ</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" class="muted">No overs bowled yet.</td></tr>'}</tbody>
+    </table>
+  `);
+}
+function renderSummaryPanel() {
+  const m = state.meta;
+  const block = idx => {
+    if (!innExists(idx)) {
+      return `
+        <div class="summary-team">
+          <div class="hdr">
+            <span class="color" style="background:#555"></span>
+            <span class="name">${idx === 0 ? '1st' : '2nd'} Innings</span>
+            <span class="score" style="color:var(--txt-faint);font-size:16px">—</span>
+          </div>
+          <div class="top">Not started</div>
+        </div>`;
+    }
+    const inn = state.innings[idx];
+    const bt = state.meta.teams[inn.battingTeam];
+    const topBat = [...inn.batsmen].filter(b => b.b > 0).sort((a,b) => b.r - a.r).slice(0, 2);
+    const topBowl = [...inn.bowlers].filter(b => b.wkts > 0 || b.balls > 0)
+      .sort((a,b) => b.wkts - a.wkts || a.runs - b.runs).slice(0, 2);
+    return `
+      <div class="summary-team">
+        <div class="hdr">
+          <span class="color" style="background:${esc(bt.color)}"></span>
+          <span class="name">${esc(bt.name)}</span>
+          <span class="score">${inn.runs}<span class="wk">/${inn.wickets}</span>
+            <span class="ov">${oversStr(inn.balls)} ov</span></span>
+        </div>
+        <div class="top">
+          ${topBat.map(b => `<span>${esc(shortName(b.name))} <b>${b.r} (${b.b})</b></span>`).join('')}
+          ${topBowl.map(b => `<span>${esc(shortName(b.name))} <b>${b.wkts}/${b.runs}</b></span>`).join('')}
+        </div>
+      </div>`;
+  };
+  return panelWrap('Match Summary', `
+    <div class="panel-title" style="font-size:22px">
+      ${esc(m.matchTitle || '')}${m.tournament ? ' · ' + esc(m.tournament) : ''}
+    </div>
+    <div class="panel-line" style="margin-bottom:6px">
+      ${esc(m.teams[0].name)} vs ${esc(m.teams[1].name)}${m.venue ? ' · ' + esc(m.venue) : ''}
+    </div>
+    ${block(0)}
+    ${block(1)}
+    ${state.result ? `
+      <div style="margin-top:18px;padding:14px 18px;border-radius:10px;
+                  background:linear-gradient(90deg, var(--accent), var(--warn));
+                  color:#04231a;font-weight:900;font-size:17px;letter-spacing:-.3px">
+        ${esc(state.result)}
+      </div>` : ''}
+  `);
+}
+function renderResultPanel() {
+  if (!state.result) return panelWrap('Result', `<div class="panel-sub">Match result not available yet.</div>`);
+  const m = state.meta;
+  const i1 = state.innings[0], i2 = state.innings[1];
+  const s1 = i1 ? `${state.meta.teams[i1.battingTeam].short} ${i1.runs}/${i1.wickets} (${oversStr(i1.balls)})` : '';
+  const s2 = i2 ? `${state.meta.teams[i2.battingTeam].short} ${i2.runs}/${i2.wickets} (${oversStr(i2.balls)})` : '';
+  return panelWrap('Result', `
+    <div class="panel-big" style="font-size:32px;line-height:1.25">${esc(state.result)}</div>
+    <div class="panel-teams" style="margin-top:18px">
+      <span style="color:${esc(m.teams[0].color)};font-size:16px">${esc(s1)}</span>
+      <span class="vs">—</span>
+      <span style="color:${esc(m.teams[1].color)};font-size:16px">${esc(s2)}</span>
+    </div>
+    ${m.tournament ? `<div class="panel-line" style="margin-top:16px">${esc(m.tournament)} · ${esc(m.matchTitle)}</div>` : ''}
+  `);
+}
+function renderStrikerPanel() {
+  if (!innExists(state.current)) return panelWrap('Striker', `<div class="panel-sub">No live innings.</div>`);
+  const inn = state.innings[state.current];
+  const bat = inn.batsmen[inn.striker];
+  return panelWrap('Striker', `
+    <div class="player-head">
+      <span class="player-tag">On Strike</span>
+      <span class="player-name">${esc(bat.name)}</span>
+    </div>
+    <div class="panel-stat-row">
+      <div class="panel-stat"><span class="lbl">Runs</span><span class="val accent">${bat.r}</span></div>
+      <div class="panel-stat"><span class="lbl">Balls</span><span class="val">${bat.b}</span></div>
+      <div class="panel-stat"><span class="lbl">Fours</span><span class="val">${bat.f4}</span></div>
+      <div class="panel-stat"><span class="lbl">Sixes</span><span class="val">${bat.f6}</span></div>
+      <div class="panel-stat"><span class="lbl">Strike Rate</span><span class="val">${sr(bat.r, bat.b)}</span></div>
+    </div>
+  `);
+}
+function renderNonStrikerPanel() {
+  if (!innExists(state.current)) return panelWrap('Non-Striker', `<div class="panel-sub">No live innings.</div>`);
+  const inn = state.innings[state.current];
+  const bat = inn.batsmen[inn.nonStriker];
+  return panelWrap('Non-Striker', `
+    <div class="player-head">
+      <span class="player-tag dim">Non-Striker</span>
+      <span class="player-name">${esc(bat.name)}</span>
+    </div>
+    <div class="panel-stat-row">
+      <div class="panel-stat"><span class="lbl">Runs</span><span class="val">${bat.r}</span></div>
+      <div class="panel-stat"><span class="lbl">Balls</span><span class="val">${bat.b}</span></div>
+      <div class="panel-stat"><span class="lbl">Fours</span><span class="val">${bat.f4}</span></div>
+      <div class="panel-stat"><span class="lbl">Sixes</span><span class="val">${bat.f6}</span></div>
+      <div class="panel-stat"><span class="lbl">Strike Rate</span><span class="val">${sr(bat.r, bat.b)}</span></div>
+    </div>
+  `);
+}
+function renderBowlerPanel() {
+  if (!innExists(state.current)) return panelWrap('Bowler', `<div class="panel-sub">No live innings.</div>`);
+  const inn = state.innings[state.current];
+  const b = inn.bowlers[inn.bowler];
+  const fig = b.balls ? `${Math.floor(b.balls/6)}.${b.balls%6}-${b.maidens}-${b.runs}-${b.wkts}` : '0.0-0-0-0';
+  return panelWrap('Bowler', `
+    <div class="player-head">
+      <span class="player-tag">Bowling</span>
+      <span class="player-name">${esc(b.name)}</span>
+    </div>
+    <div class="panel-stat-row">
+      <div class="panel-stat"><span class="lbl">Figures</span><span class="val accent">${fig}</span></div>
+      <div class="panel-stat"><span class="lbl">Economy</span><span class="val">${econ(b.runs, b.balls)}</span></div>
+      <div class="panel-stat"><span class="lbl">Wides</span><span class="val">${b.wd}</span></div>
+      <div class="panel-stat"><span class="lbl">No-balls</span><span class="val">${b.nb}</span></div>
+      <div class="panel-stat"><span class="lbl">Maidens</span><span class="val">${b.maidens}</span></div>
+    </div>
+  `);
+}
+function renderFOWPanel() {
+  if (!innExists(state.current)) return panelWrap('Fall of Wickets', `<div class="panel-sub">No live innings.</div>`);
+  const inn = state.innings[state.current];
+  const bt = state.meta.teams[inn.battingTeam];
+  const list = inn.fow.length
+    ? inn.fow.map(f => `
+        <div class="fow-item">
+          <span class="wkt">${f.wicket}-${f.runs}</span>
+          <span class="nm">${esc(f.batsman)}
+            <small>${esc(inn.batsmen.find(b => b.name === f.batsman)?.how || '')}</small>
+          </span>
+          <span class="ov">${f.over} ov</span>
+        </div>`).join('')
+    : `<div class="panel-sub">No wickets have fallen yet.</div>`;
+  return panelWrap(`Fall of Wickets — ${bt.name}`, `
+    <div class="fow-list">${list}</div>
+    <div class="panel-footer">
+      <span>Total: <b style="color:var(--txt)">${inn.runs}/${inn.wickets}</b> (${oversStr(inn.balls)} ov)</span>
+    </div>
+  `);
+}
+function renderPartnershipPanel() {
+  if (!innExists(state.current)) return panelWrap('Partnership', `<div class="panel-sub">No live innings.</div>`);
+  const inn = state.innings[state.current];
+  const s = inn.batsmen[inn.striker];
+  const ns = inn.batsmen[inn.nonStriker];
+  const p = inn.partnership;
+  const crrP = p.balls ? (p.runs / (p.balls / 6)).toFixed(2) : '0.00';
+  const contrib = s.r + ns.r;
+  const sPct = contrib ? Math.round((s.r / contrib) * 100) : 0;
+  const nsPct = contrib ? 100 - sPct : 0;
+  return panelWrap('Partnership', `
+    <div class="player-head"><span class="player-tag">Current Stand</span></div>
+    <div class="panel-stat-row" style="margin-top:8px">
+      <div class="panel-stat"><span class="lbl">Runs</span><span class="val accent">${p.runs}</span></div>
+      <div class="panel-stat"><span class="lbl">Balls</span><span class="val">${p.balls}</span></div>
+      <div class="panel-stat"><span class="lbl">Run Rate</span><span class="val">${crrP}</span></div>
+      <div class="panel-stat"><span class="lbl">For Wicket</span><span class="val">${inn.wickets + 1}${['st','nd','rd'][inn.wickets] || 'th'}</span></div>
+    </div>
+    <div class="partner-line">
+      <span>${esc(s.name)} <b>${s.r} (${s.b})</b> · ${sPct}%</span>
+      <span style="color:var(--txt-faint)">+</span>
+      <span>${esc(ns.name)} <b>${ns.r} (${ns.b})</b> · ${nsPct}%</span>
+    </div>
+  `);
+}
+
+/* ============================================================
+   TARGET PANEL
+   ============================================================ */
+function renderTargetPanel() {
+  const m = state.meta;
+  const inn = state.innings[state.current];
+
+  if (!inn || inn.target === null || inn.target === undefined) {
+    const i2 = state.innings[1];
+    if (i2 && i2.target !== null) {
+      const bt2 = m.teams[i2.battingTeam];
+      const ballsLeft2 = Math.max(0, m.overs * 6 - i2.balls);
+      const need2 = Math.max(0, i2.target - i2.runs);
+      return `
+        <div class="ov-target">
+          <div class="target-team">${esc(bt2.name)}</div>
+          <div class="target-line">
+            <span class="target-label">NEED</span>
+            <span class="target-big">${need2}</span>
+            <span class="target-unit">RUNS</span>
+          </div>
+          <div class="target-line">
+            <span class="target-label">FROM</span>
+            <span class="target-big small">${ballsLeft2}</span>
+            <span class="target-unit">BALLS</span>
+          </div>
+        </div>`;
+    }
+    return `
+      <div class="ov-target">
+        <div class="target-empty">No active chase</div>
+      </div>`;
+  }
+
+  const bt = m.teams[inn.battingTeam];
+  const need = Math.max(0, inn.target - inn.runs);
+  const ballsLeft = Math.max(0, m.overs * 6 - inn.balls);
+
+  if (need <= 0) {
+    return `
+      <div class="ov-target">
+        <div class="target-team">${esc(bt.name)}</div>
+        <div class="target-line">
+          <span class="target-label">TARGET</span>
+          <span class="target-big">✓</span>
+          <span class="target-unit">ACHIEVED</span>
+        </div>
+      </div>`;
+  }
+
+  return `
+    <div class="ov-target">
+      <div class="target-team">${esc(bt.name)}</div>
+      <div class="target-line">
+        <span class="target-label">NEED</span>
+        <span class="target-big">${need}</span>
+        <span class="target-unit">RUNS</span>
+      </div>
+      <div class="target-line">
+        <span class="target-label">FROM</span>
+        <span class="target-big small">${ballsLeft}</span>
+        <span class="target-unit">BALLS</span>
+      </div>
+    </div>`;
+}
+
+/* ============================================================
+   MAIN RENDER
+   ============================================================ */
+function render() {
+  const root = document.getElementById('ov-root');
+  if (!state) { root.innerHTML = ''; root.dataset.mode = 'idle'; return; }
+
+  const o = state.overlay || {};
+  applyTheme(o);
+  root.dataset.design = o.design || 'classic';
+
+  if (activeAnimation) {
+    root.dataset.mode = 'anim';
+    root.innerHTML = renderAnimation(activeAnimation.type);
+    fit();
+    return;
+  }
+
+  const displayMode = state.displayMode || 'scorebar';
+  let mode = 'idle';
+
+  if (state.status === 'setup' || !state.innings[state.current]) {
+    mode = 'idle';
+  } else if (displayMode === 'target') {
+    mode = 'target';
+  } else if (displayMode === 'scorebar') {
+    mode = 'scorebar';
+  } else if (displayMode) {
+    mode = 'panel';
+  }
+
+  root.dataset.mode = mode;
+
+  if (mode === 'idle') {
+    root.innerHTML = `
+      <div class="ov-idle">
+        <span class="dot"></span>
+        <span>BRKLIVE 19 — awaiting match start</span>
+      </div>`;
+    fit();
+    return;
+  }
+
+  if (mode === 'target') {
+    root.innerHTML = renderTargetPanel();
+    fit();
+    return;
+  }
+
+  if (mode === 'panel') {
+    let html = '';
+    switch (displayMode) {
+      case 'tournament': html = renderTournamentPanel(); break;
+      case 'match':      html = renderMatchPanel(); break;
+      case 'toss':       html = renderTossPanel(); break;
+      case 'batting1':   html = renderBattingPanel(0); break;
+      case 'batting2':   html = renderBattingPanel(1); break;
+      case 'bowling1':   html = renderBowlingPanel(0); break;
+      case 'bowling2':   html = renderBowlingPanel(1); break;
+      case 'summary':    html = renderSummaryPanel(); break;
+      case 'result':     html = renderResultPanel(); break;
+      case 'striker':    html = renderStrikerPanel(); break;
+      case 'nonstriker': html = renderNonStrikerPanel(); break;
+      case 'bowler':     html = renderBowlerPanel(); break;
+      case 'fow':        html = renderFOWPanel(); break;
+      case 'partnership':html = renderPartnershipPanel(); break;
+    }
+    if (html) { root.innerHTML = html; fit(); return; }
+  }
+
+  /* ---- Compact score bar ---- */
+  const inn = state.innings[state.current];
+  const bt  = state.meta.teams[inn.battingTeam];
+  const striker    = inn.batsmen[inn.striker];
+  const nonStriker = inn.batsmen[inn.nonStriker];
+  const bowler     = inn.bowlers[inn.bowler];
+
+  const crr = rr(inn.runs, inn.balls);
+  let rrr = null;
+  if (inn.target !== null) {
+    const need = inn.target - inn.runs;
+    const ballsLeft = state.meta.overs * 6 - inn.balls;
+    if (need > 0 && ballsLeft > 0) rrr = (need / (ballsLeft / 6)).toFixed(2);
+  }
+
+  const parts = [];
+  parts.push('<div class="ov-bar">');
+
+  parts.push(`
+    <div class="ov-team" style="--team-color:${esc(bt.color)}">
+      <div>
+        <div class="code">${esc(teamLabel(bt))}</div>
+        <div class="ovs">${oversStr(inn.balls)} / ${state.meta.overs} ov</div>
+      </div>
+      <div class="score">${inn.runs}<span class="slash">/</span><span class="wk">${inn.wickets}</span></div>
+    </div>
+  `);
+
+  if (o.showBat !== false) {
+    parts.push(`
+      <div class="ov-bats">
+        <div class="ov-bat on">
+          <span class="nm">${esc(shortName(striker.name))}</span>
+          <span class="rs">${striker.r}</span>
+          <span class="bl">(${striker.b})</span>
+        </div>
+        <div class="ov-bat dim">
+          <span class="nm">${esc(shortName(nonStriker.name))}</span>
+          <span class="rs">${nonStriker.r}</span>
+          <span class="bl">(${nonStriker.b})</span>
+        </div>
+      </div>
+    `);
+  }
+
+  if (o.showBowl !== false) {
+    parts.push(`
+      <div class="ov-bowl">
+        <div class="lbl">Bowling</div>
+        <div class="nm">${esc(shortName(bowler.name))}</div>
+        <div class="fig">${bowlerFig(bowler)}</div>
+      </div>
+    `);
+  }
+
+  if (o.showRates !== false) {
+    parts.push(`
+      <div class="ov-rates">
+        <div class="ov-rate"><span class="lbl">CRR</span><span class="val">${crr}</span></div>
+        ${rrr !== null ? `<div class="ov-rate req"><span class="lbl">REQ</span><span class="val">${rrr}</span></div>` : ''}
+      </div>
+    `);
+  }
+
+  parts.push('</div>');
+
+  if (o.showOver !== false && inn.overBalls && inn.overBalls.length) {
+    parts.push(`
+      <div class="ov-over">
+        <span class="ttl">This Over</span>
+        ${inn.overBalls.map(b => `<span class="b ${b.cls}">${esc(b.label)}</span>`).join('')}
+      </div>
+    `);
+  }
+  if (state.status === 'complete' && state.result) {
+    parts.push(`<div class="ov-result">${esc(state.result)}</div>`);
+  }
+
+  root.innerHTML = parts.join('');
+  fit();
+}
+
+/* ---------- State loading ---------- */
+function readLS() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw || raw === lastRaw) return false;
+    lastRaw = raw;
+    state = JSON.parse(raw);
+    return true;
+  } catch (e) { return false; }
+}
+
+readLS();
+checkAnimation();
+render();
+
+if (channel) {
+  channel.onmessage = ev => {
+    const d = ev.data;
+    if (!d) return;
+    if (d.type === 'state') {
+      state = d.state; lastRaw = ''; checkAnimation(); render();
+    }
+  };
+}
+window.addEventListener('storage', e => {
+  if (e.key === LS_KEY && e.newValue) {
+    try { state = JSON.parse(e.newValue); lastRaw = e.newValue; checkAnimation(); render(); }
+    catch (err) {}
+  }
+});
+setInterval(() => {
+  if (readLS()) { checkAnimation(); render(); }
+}, 600);
+</script>
+</body>
+</html>
