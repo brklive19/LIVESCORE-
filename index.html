@@ -1,1 +1,2007 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProCast Football Live Broadcast Overlay & Studio Controller</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter & Rajdhani for sleek broadcast typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Rajdhani:wght@600;700;800&display=swap" rel="stylesheet">
+    <!-- Lucide Icons for crisp studio controls -->
+    <script src="https://unpkg.com/lucide@latest"></script>
 
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        display: ['Rajdhani', 'sans-serif'],
+                    },
+                    colors: {
+                        studio: {
+                            950: '#090b10',
+                            900: '#0f121a',
+                            800: '#171c28',
+                            700: '#22293a',
+                            600: '#313b52',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Custom Broadcast Animations & Glassmorphism */
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+            user-select: none;
+        }
+
+        .font-broadcast {
+            font-family: 'Rajdhani', sans-serif;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Background Modes for Broadcast Canvas */
+        .bg-mode-studio {
+            background: radial-gradient(circle at 50% 30%, #1e293b 0%, #090b10 100%);
+            background-image: 
+                radial-gradient(circle at 50% 30%, rgba(30, 41, 59, 0.85) 0%, rgba(9, 11, 16, 0.95) 100%),
+                linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 100% 100%, 40px 40px, 40px 40px;
+        }
+
+        .bg-mode-chroma {
+            background-color: #00b140 !important;
+            background-image: none !important;
+        }
+
+        .bg-mode-transparent {
+            background-color: transparent !important;
+            background-image: 
+                linear-gradient(45deg, #1a1f2c 25%, transparent 25%), 
+                linear-gradient(-45deg, #1a1f2c 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #1a1f2c 75%), 
+                linear-gradient(-45deg, transparent 75%, #1a1f2c 75%);
+            background-size: 24px 24px;
+            background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+        }
+
+        /* True transparent when in OBS Clean Fullscreen Mode + Transparent selected */
+        body.obs-clean-mode.obs-true-transparent,
+        body.obs-clean-mode.obs-true-transparent #broadcast-canvas {
+            background: transparent !important;
+            background-image: none !important;
+        }
+
+        /* Scorebug Gloss & Shadow */
+        .scorebug-shadow {
+            box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.65), 0 0 1px 1px rgba(255, 255, 255, 0.12);
+        }
+
+        /* Lower Third Animations */
+        @keyframes slideInUp {
+            0% {
+                opacity: 0;
+                transform: translateY(36px) scale(0.96);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @keyframes slideOutDown {
+            0% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+            100% {
+                opacity: 0;
+                transform: translateY(28px) scale(0.97);
+            }
+        }
+
+        @keyframes goalPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.03); }
+        }
+
+        @keyframes shimmerSweep {
+            0% { transform: translateX(-120%) skewX(-20deg); }
+            100% { transform: translateX(220%) skewX(-20deg); }
+        }
+
+        .banner-enter {
+            animation: slideInUp 0.48s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        .banner-exit {
+            animation: slideOutDown 0.38s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+        }
+
+        .goal-glow {
+            animation: goalPulse 1.6s ease-in-out infinite;
+        }
+
+        .shimmer-bar::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 45%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+            animation: shimmerSweep 2.2s infinite;
+        }
+
+        /* Match Stats Card Transition */
+        .stats-panel-transition {
+            transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* Custom Scrollbar for Control Panel */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f121a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #22293a;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #313b52;
+        }
+    </style>
+</head>
+<body class="bg-studio-950 text-slate-100 min-h-screen flex flex-col">
+
+    <!-- =====================================================================
+         1. BROADCAST OVERLAY DISPLAY (Top Section / Transparent-ready Canvas)
+    ====================================================================== -->
+    <section id="broadcast-canvas" class="relative w-full h-[46vh] min-h-[340px] bg-mode-studio overflow-hidden flex flex-col justify-between p-6 sm:p-10 transition-all duration-300 border-b border-studio-700/70">
+        
+        <!-- Top Row: Scorebug (Top-Left) & Broadcast Watermark / Status Pill (Top-Right) -->
+        <div class="flex items-start justify-between w-full z-20">
+            
+            <!-- MAIN TV BROADCAST SCOREBUG (Top-Left) -->
+            <div id="scorebug-wrapper" class="flex flex-col items-start transition-transform duration-300 origin-top-left">
+                
+                <!-- Main Horizontal Pill Bar -->
+                <div class="flex items-stretch h-12 sm:h-14 rounded-xl overflow-hidden scorebug-shadow bg-slate-950/95 backdrop-blur-md border border-white/15">
+                    
+                    <!-- Competition / Broadcaster Accent Badge -->
+                    <div class="bg-gradient-to-b from-indigo-600 to-indigo-800 px-2.5 sm:px-3 flex flex-col items-center justify-center border-r border-white/15">
+                        <svg class="w-4 h-4 sm:w-5 sm:h-5 text-white drop-shadow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polygon points="12 7 16.5 10.2 14.8 15.5 9.2 15.5 7.5 10.2"/>
+                        </svg>
+                        <span id="overlay-comp-tag" class="text-[9px] font-black tracking-widest uppercase text-indigo-100 leading-none mt-0.5">LIVE</span>
+                    </div>
+
+                    <!-- HOME TEAM BLOCK -->
+                    <div id="overlay-home-block" class="relative flex items-center pl-3 pr-2.5 sm:pl-3.5 sm:pr-3 transition-colors duration-300" style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%);">
+                        <!-- Dynamic Team Color Stripe -->
+                        <div id="overlay-home-color-bar" class="w-1.5 h-8 rounded-full mr-2.5 shadow-sm transition-colors duration-300" style="background-color: #ef4444;"></div>
+                        
+                        <!-- Optional Crest SVG -->
+                        <div id="overlay-home-crest" class="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center mr-2 text-white font-black text-xs shadow-inner border border-white/20 shrink-0" style="background-color: #ef4444;">
+                            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3z"/></svg>
+                        </div>
+
+                        <!-- 3-Letter Code & Red Cards -->
+                        <div class="flex flex-col justify-center">
+                            <span id="overlay-home-code" class="font-broadcast font-extrabold text-xl sm:text-2xl tracking-wider text-white leading-none drop-shadow">ARS</span>
+                            <!-- Red Card Indicators Container -->
+                            <div id="overlay-home-redcards" class="flex items-center gap-1 mt-0.5 h-2"></div>
+                        </div>
+                    </div>
+
+                    <!-- SCOREBOARD CENTER BOX -->
+                    <div class="flex items-center bg-white text-slate-950 px-3 sm:px-4 font-broadcast font-extrabold text-2xl sm:text-3xl tracking-tight shadow-inner">
+                        <span id="overlay-home-score" class="min-w-[1.1ch] text-center transition-transform duration-200">2</span>
+                        <span class="mx-1.5 text-slate-400 text-lg sm:text-xl font-bold">-</span>
+                        <span id="overlay-away-score" class="min-w-[1.1ch] text-center transition-transform duration-200">1</span>
+                    </div>
+
+                    <!-- AWAY TEAM BLOCK -->
+                    <div id="overlay-away-block" class="relative flex items-center pl-2.5 pr-3 sm:pl-3 sm:pr-3.5 transition-colors duration-300" style="background: linear-gradient(270deg, #0f172a 0%, #1e293b 100%);">
+                        <!-- 3-Letter Code & Red Cards -->
+                        <div class="flex flex-col items-end justify-center">
+                            <span id="overlay-away-code" class="font-broadcast font-extrabold text-xl sm:text-2xl tracking-wider text-white leading-none drop-shadow">MCI</span>
+                            <!-- Red Card Indicators Container -->
+                            <div id="overlay-away-redcards" class="flex items-center justify-end gap-1 mt-0.5 h-2"></div>
+                        </div>
+
+                        <!-- Optional Crest SVG -->
+                        <div id="overlay-away-crest" class="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center ml-2 text-white font-black text-xs shadow-inner border border-white/20 shrink-0" style="background-color: #38bdf8;">
+                            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3z"/></svg>
+                        </div>
+
+                        <!-- Dynamic Team Color Stripe -->
+                        <div id="overlay-away-color-bar" class="w-1.5 h-8 rounded-full ml-2.5 shadow-sm transition-colors duration-300" style="background-color: #38bdf8;"></div>
+                    </div>
+
+                    <!-- MATCH CLOCK & HALF INDICATOR -->
+                    <div class="flex items-center bg-slate-950 border-l border-white/15 px-3 sm:px-3.5 gap-2">
+                        <span id="overlay-period" class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-broadcast font-bold text-xs sm:text-sm tracking-wider uppercase">2H</span>
+                        <span id="overlay-clock" class="font-broadcast font-bold text-xl sm:text-2xl text-white tracking-wide w-[54px] sm:w-[62px] text-center">67:14</span>
+                    </div>
+
+                    <!-- STOPPAGE / ADDED TIME BADGE (Hidden if 0) -->
+                    <div id="overlay-added-time-box" class="hidden items-center justify-center bg-amber-400 text-slate-950 px-2.5 font-broadcast font-extrabold text-base sm:text-lg tracking-tight border-l border-amber-500">
+                        +<span id="overlay-added-time">3</span>
+                    </div>
+                </div>
+
+                <!-- Optional Secondary Sub-bar (Penalties Shootout Tracker when PEN selected) -->
+                <div id="overlay-penalties-bar" class="hidden mt-1.5 bg-slate-950/90 backdrop-blur-md border border-white/15 rounded-lg px-3 py-1.5 scorebug-shadow flex items-center gap-4 text-xs">
+                    <span class="font-bold tracking-wider uppercase text-amber-400">PENALTIES</span>
+                    <div class="flex items-center gap-1.5">
+                        <span id="pen-home-label" class="font-bold text-slate-300">ARS</span>
+                        <div id="pen-home-dots" class="flex gap-1"></div>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span id="pen-away-label" class="font-bold text-slate-300">MCI</span>
+                        <div id="pen-away-dots" class="flex gap-1"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top-Right Quick Restore Pill (Only visible in Clean OBS Mode on Hover) -->
+            <div id="obs-exit-pill" class="hidden opacity-20 hover:opacity-100 transition-opacity duration-200">
+                <button onclick="toggleOBSMode()" class="flex items-center gap-2 bg-slate-900/90 text-white text-xs font-semibold px-3.5 py-2 rounded-full border border-white/20 shadow-lg backdrop-blur-md">
+                    <i data-lucide="sliders" class="w-3.5 h-3.5 text-emerald-400"></i>
+                    <span>Exit Broadcast Mode (H)</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Center Overlay: MATCH STATS COMPARISON CARD (Toggleable) -->
+        <div id="overlay-stats-card" class="hidden opacity-0 scale-95 stats-panel-transition self-center my-auto z-20 w-full max-w-md bg-slate-950/95 backdrop-blur-xl border border-white/15 rounded-2xl overflow-hidden scorebug-shadow">
+            <!-- Header -->
+            <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 px-5 py-3 border-b border-white/10 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span id="stats-home-dot" class="w-3 h-3 rounded-full" style="background-color: #ef4444;"></span>
+                    <span id="stats-home-name" class="font-broadcast font-bold text-base tracking-wider uppercase text-white">ARSENAL</span>
+                </div>
+                <span class="text-[11px] font-extrabold tracking-[0.2em] uppercase text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-400/30">MATCH STATS</span>
+                <div class="flex items-center gap-2">
+                    <span id="stats-away-name" class="font-broadcast font-bold text-base tracking-wider uppercase text-white">MAN CITY</span>
+                    <span id="stats-away-dot" class="w-3 h-3 rounded-full" style="background-color: #38bdf8;"></span>
+                </div>
+            </div>
+
+            <!-- Stats Rows -->
+            <div class="p-4 space-y-3 text-sm">
+                <!-- Possession -->
+                <div>
+                    <div class="flex justify-between font-broadcast font-bold text-base mb-1">
+                        <span id="stat-val-poss-home" class="text-white">54%</span>
+                        <span class="text-xs font-sans font-semibold uppercase tracking-wider text-slate-400">Possession</span>
+                        <span id="stat-val-poss-away" class="text-white">46%</span>
+                    </div>
+                    <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden flex gap-0.5">
+                        <div id="stat-bar-poss-home" class="h-full transition-all duration-500" style="width: 54%; background-color: #ef4444;"></div>
+                        <div id="stat-bar-poss-away" class="h-full transition-all duration-500" style="width: 46%; background-color: #38bdf8;"></div>
+                    </div>
+                </div>
+
+                <!-- Shots -->
+                <div>
+                    <div class="flex justify-between font-broadcast font-bold text-base mb-1">
+                        <span id="stat-val-shots-home" class="text-white">12</span>
+                        <span class="text-xs font-sans font-semibold uppercase tracking-wider text-slate-400">Total Shots</span>
+                        <span id="stat-val-shots-away" class="text-white">9</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden flex gap-0.5">
+                        <div id="stat-bar-shots-home" class="h-full transition-all duration-500" style="width: 57%; background-color: #ef4444;"></div>
+                        <div id="stat-bar-shots-away" class="h-full transition-all duration-500" style="width: 43%; background-color: #38bdf8;"></div>
+                    </div>
+                </div>
+
+                <!-- Shots on Target -->
+                <div>
+                    <div class="flex justify-between font-broadcast font-bold text-base mb-1">
+                        <span id="stat-val-sot-home" class="text-white">5</span>
+                        <span class="text-xs font-sans font-semibold uppercase tracking-wider text-slate-400">Shots on Target</span>
+                        <span id="stat-val-sot-away" class="text-white">4</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden flex gap-0.5">
+                        <div id="stat-bar-sot-home" class="h-full transition-all duration-500" style="width: 55%; background-color: #ef4444;"></div>
+                        <div id="stat-bar-sot-away" class="h-full transition-all duration-500" style="width: 45%; background-color: #38bdf8;"></div>
+                    </div>
+                </div>
+
+                <!-- Corners & Fouls Compact Row -->
+                <div class="grid grid-cols-2 gap-3 pt-1">
+                    <div class="bg-slate-900/90 border border-white/10 rounded-xl px-3 py-2 flex items-center justify-between">
+                        <span id="stat-val-corners-home" class="font-broadcast font-bold text-lg text-white">6</span>
+                        <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Corners</span>
+                        <span id="stat-val-corners-away" class="font-broadcast font-bold text-lg text-white">4</span>
+                    </div>
+                    <div class="bg-slate-900/90 border border-white/10 rounded-xl px-3 py-2 flex items-center justify-between">
+                        <span id="stat-val-fouls-home" class="font-broadcast font-bold text-lg text-white">8</span>
+                        <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Fouls</span>
+                        <span id="stat-val-fouls-away" class="font-broadcast font-bold text-lg text-white">11</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Row: LOWER THIRD / EVENT POP-UP BANNER (Bottom-Center / Left) -->
+        <div id="lower-third-container" class="w-full flex justify-center sm:justify-start z-30 pointer-events-none min-h-[76px]">
+            <!-- Dynamic Banner Injected Here -->
+        </div>
+
+    </section>
+
+    <!-- =====================================================================
+         2. LIVE OPERATOR CONTROL PANEL (Studio Dashboard)
+    ====================================================================== -->
+    <main id="control-panel" class="flex-1 bg-studio-950 p-4 sm:p-6 max-w-[1440px] w-full mx-auto space-y-5">
+        
+        <!-- Top Studio Bar: Canvas Mode, Sync Status, OBS Fullscreen Toggle -->
+        <header class="flex flex-wrap items-center justify-between gap-3 bg-studio-900 border border-studio-700/80 rounded-2xl px-4 py-3 shadow-lg">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-white shadow-md">
+                    <i data-lucide="tv" class="w-5 h-5"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <h1 class="font-bold text-base sm:text-lg tracking-tight text-white">ProCast Football Studio</h1>
+                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                            SYNC ACTIVE
+                        </span>
+                    </div>
+                    <p class="text-xs text-slate-400">Open a second tab for dual-window OBS Output & Control Room sync</p>
+                </div>
+            </div>
+
+            <!-- Canvas Background Switcher & OBS Mode Button -->
+            <div class="flex flex-wrap items-center gap-2">
+                <!-- Standalone Overlayer Link & Copy URL -->
+                <div class="flex items-center bg-emerald-950/60 border border-emerald-500/40 rounded-xl p-1 gap-1">
+                    <a href="overlayer.html" target="_blank" rel="noopener noreferrer" onclick="openStandaloneOverlayer(event)" class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow transition cursor-pointer" title="Open standalone overlayer.html in a new window">
+                        <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                        <span>OVERLAYER</span>
+                    </a>
+                    <button onclick="copyOverlayerUrl()" id="btn-copy-overlayer" class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-emerald-300 hover:bg-emerald-900/60 transition cursor-pointer" title="Copy overlayer.html URL for OBS Browser Source">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                        <span id="copy-overlayer-label">Copy Link</span>
+                    </button>
+                </div>
+
+                <!-- Background Mode Switcher -->
+                <div class="flex items-center bg-studio-950 p-1 rounded-xl border border-studio-700 text-xs font-medium">
+                    <button onclick="setCanvasBg('studio')" id="btn-bg-studio" class="px-2.5 py-1.5 rounded-lg bg-studio-700 text-white transition">Studio Dark</button>
+                    <button onclick="setCanvasBg('chroma')" id="btn-bg-chroma" class="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-white transition flex items-center gap-1.5">
+                        <span class="w-2.5 h-2.5 rounded-full bg-[#00b140] inline-block"></span>
+                        Chroma Green
+                    </button>
+                    <button onclick="setCanvasBg('transparent')" id="btn-bg-transparent" class="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-white transition">Transparent</button>
+                </div>
+
+                <!-- Scorebug Scale Slider -->
+                <div class="hidden md:flex items-center gap-2 bg-studio-950 px-3 py-1.5 rounded-xl border border-studio-700 text-xs">
+                    <span class="text-slate-400">Scale</span>
+                    <input type="range" id="scale-slider" min="80" max="135" value="100" oninput="setOverlayScale(this.value)" class="w-20 accent-indigo-500 cursor-pointer">
+                    <span id="scale-value" class="font-mono text-slate-300 w-9">100%</span>
+                </div>
+
+                <!-- Hide Controls / OBS Fullscreen Mode -->
+                <button onclick="toggleOBSMode()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-semibold text-xs sm:text-sm px-4 py-2 rounded-xl shadow-md shadow-indigo-950/50 transition cursor-pointer">
+                    <i data-lucide="maximize-2" class="w-4 h-4"></i>
+                    <span>OBS Clean Overlay (H)</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Primary 3-Column Studio Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            
+            <!-- COLUMN 1: MATCH CLOCK & PERIOD CONTROLS (4 Cols) -->
+            <div class="lg:col-span-4 bg-studio-900 border border-studio-700/80 rounded-2xl p-4 sm:p-5 flex flex-col justify-between space-y-4 shadow-lg">
+                <div>
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                            <i data-lucide="clock" class="w-4 h-4 text-emerald-400"></i>
+                            Match Clock & Period
+                        </h2>
+                        <span id="clock-status-badge" class="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30">PAUSED</span>
+                    </div>
+
+                    <!-- Digital Clock Readout & Play/Pause -->
+                    <div class="bg-studio-950 border border-studio-700 rounded-xl p-4 flex items-center justify-between mb-4">
+                        <div class="font-broadcast font-extrabold text-4xl sm:text-5xl text-white tracking-wider" id="ctrl-clock-display">67:14</div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="toggleClock()" id="btn-clock-toggle" class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold px-4 py-2.5 rounded-xl shadow transition cursor-pointer">
+                                <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+                                <span>START</span>
+                            </button>
+                            <button onclick="resetClock()" title="Reset Clock to 00:00" class="p-2.5 bg-studio-800 hover:bg-studio-700 text-slate-300 rounded-xl border border-studio-600 transition cursor-pointer">
+                                <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Set Custom Minute / Second -->
+                    <div class="grid grid-cols-3 gap-2 mb-4">
+                        <div>
+                            <label class="block text-[11px] text-slate-400 mb-1">Minute</label>
+                            <input type="number" id="input-custom-min" min="0" max="130" value="67" class="w-full bg-studio-950 border border-studio-700 rounded-lg px-2.5 py-1.5 text-sm font-mono text-white focus:outline-none focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] text-slate-400 mb-1">Second</label>
+                            <input type="number" id="input-custom-sec" min="0" max="59" value="14" class="w-full bg-studio-950 border border-studio-700 rounded-lg px-2.5 py-1.5 text-sm font-mono text-white focus:outline-none focus:border-indigo-500">
+                        </div>
+                        <div class="flex items-end">
+                            <button onclick="applyCustomTime()" class="w-full bg-studio-800 hover:bg-studio-700 text-slate-200 font-semibold text-xs py-2 rounded-lg border border-studio-600 transition cursor-pointer">Set Time</button>
+                        </div>
+                    </div>
+
+                    <!-- Half / Period Selector -->
+                    <div class="mb-4">
+                        <label class="block text-[11px] text-slate-400 mb-1.5">Match Period</label>
+                        <div class="grid grid-cols-5 gap-1.5">
+                            <button onclick="setPeriod('1H')" data-period="1H" class="period-btn py-1.5 rounded-lg text-xs font-bold bg-studio-800 text-slate-300 border border-studio-700 hover:border-indigo-500 transition cursor-pointer">1H</button>
+                            <button onclick="setPeriod('HT')" data-period="HT" class="period-btn py-1.5 rounded-lg text-xs font-bold bg-studio-800 text-slate-300 border border-studio-700 hover:border-indigo-500 transition cursor-pointer">HT</button>
+                            <button onclick="setPeriod('2H')" data-period="2H" class="period-btn py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white border border-indigo-500 transition cursor-pointer">2H</button>
+                            <button onclick="setPeriod('ET')" data-period="ET" class="period-btn py-1.5 rounded-lg text-xs font-bold bg-studio-800 text-slate-300 border border-studio-700 hover:border-indigo-500 transition cursor-pointer">ET</button>
+                            <button onclick="setPeriod('PEN')" data-period="PEN" class="period-btn py-1.5 rounded-lg text-xs font-bold bg-studio-800 text-slate-300 border border-studio-700 hover:border-indigo-500 transition cursor-pointer">PEN</button>
+                        </div>
+                    </div>
+
+                    <!-- Stoppage / Added Time -->
+                    <div class="flex items-center justify-between bg-studio-950 border border-studio-700 rounded-xl px-3.5 py-2.5">
+                        <div>
+                            <span class="text-xs font-semibold text-slate-200 block">Added / Stoppage Time</span>
+                            <span class="text-[11px] text-slate-400">Shows +Mins badge on scorebug</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="adjustAddedTime(-1)" class="w-8 h-8 rounded-lg bg-studio-800 hover:bg-studio-700 text-white font-bold border border-studio-600 cursor-pointer">-</button>
+                            <span id="ctrl-added-time" class="font-broadcast font-bold text-xl text-amber-400 w-7 text-center">+3</span>
+                            <button onclick="adjustAddedTime(1)" class="w-8 h-8 rounded-lg bg-studio-800 hover:bg-studio-700 text-white font-bold border border-studio-600 cursor-pointer">+</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Summary Banner Triggers (HT / FT) -->
+                <div class="pt-2 border-t border-studio-800 grid grid-cols-2 gap-2">
+                    <button onclick="triggerSummaryBanner('HALF TIME')" class="flex items-center justify-center gap-1.5 bg-studio-800 hover:bg-studio-700 text-slate-200 text-xs font-bold py-2.5 rounded-xl border border-studio-600 transition cursor-pointer">
+                        <i data-lucide="tv-2" class="w-3.5 h-3.5 text-indigo-400"></i>
+                        <span>HT Banner</span>
+                    </button>
+                    <button onclick="triggerSummaryBanner('FULL TIME')" class="flex items-center justify-center gap-1.5 bg-studio-800 hover:bg-studio-700 text-slate-200 text-xs font-bold py-2.5 rounded-xl border border-studio-600 transition cursor-pointer">
+                        <i data-lucide="flag" class="w-3.5 h-3.5 text-emerald-400"></i>
+                        <span>FT Banner</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- COLUMN 2: TEAMS, SCORES & BROADCAST EVENTS (5 Cols) -->
+            <div class="lg:col-span-5 bg-studio-900 border border-studio-700/80 rounded-2xl p-4 sm:p-5 space-y-4 shadow-lg">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                        <i data-lucide="shield" class="w-4 h-4 text-indigo-400"></i>
+                        Teams, Score & Event Triggers
+                    </h2>
+                    <input type="text" id="input-comp-tag" value="LIVE" maxlength="6" oninput="updateCompTag(this.value)" placeholder="TAG" class="w-20 bg-studio-950 border border-studio-700 rounded-lg px-2 py-1 text-xs font-bold uppercase text-center text-indigo-300 focus:outline-none focus:border-indigo-500" title="Competition Tag">
+                </div>
+
+                <!-- HOME & AWAY TEAM CARDS -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    
+                    <!-- HOME TEAM CONTROLLER -->
+                    <div class="bg-studio-950 border border-studio-700 rounded-xl p-3.5 space-y-3">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Home Team</span>
+                            <div class="flex items-center gap-2">
+                                <label class="flex items-center gap-1 text-[10px] font-semibold text-slate-400 bg-studio-900 px-1.5 py-0.5 rounded border border-studio-800 cursor-pointer" title="Team Accent / Crest Color">
+                                    <span>Accent</span>
+                                    <input type="color" id="input-home-color" value="#ef4444" oninput="updateTeam('home')" class="w-4 h-4 rounded cursor-pointer bg-transparent border-0">
+                                </label>
+                                <label class="flex items-center gap-1 text-[10px] font-semibold text-slate-400 bg-studio-900 px-1.5 py-0.5 rounded border border-studio-800 cursor-pointer" title="Team Name Background Color">
+                                    <span>Name BG</span>
+                                    <input type="color" id="input-home-bg-color" value="#1e293b" oninput="updateTeam('home')" class="w-4 h-4 rounded cursor-pointer bg-transparent border-0">
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="flex gap-2">
+                            <input type="text" id="input-home-code" value="ARS" maxlength="3" oninput="updateTeam('home')" class="w-16 bg-studio-900 border border-studio-700 rounded-lg px-2 py-1.5 font-broadcast font-bold text-base uppercase text-center text-white focus:outline-none focus:border-indigo-500">
+                            <input type="text" id="input-home-name" value="Arsenal" oninput="updateTeam('home')" class="flex-1 min-w-0 bg-studio-900 border border-studio-700 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-indigo-500">
+                        </div>
+
+                        <!-- Score Controls -->
+                        <div class="flex items-center justify-between bg-studio-900 rounded-xl p-2 border border-studio-800">
+                            <button onclick="changeScore('home', -1)" class="w-9 h-9 rounded-lg bg-studio-800 hover:bg-rose-950 hover:text-rose-300 text-slate-300 font-bold text-lg transition cursor-pointer">-1</button>
+                            <span id="ctrl-home-score" class="font-broadcast font-extrabold text-3xl text-white">2</span>
+                            <button onclick="openGoalModal('home')" class="px-3 h-9 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs flex items-center gap-1 shadow transition cursor-pointer">
+                                <span>+1 GOAL</span>
+                            </button>
+                        </div>
+
+                        <!-- Event Action Buttons (Yellow, Red, Sub) -->
+                        <div class="grid grid-cols-3 gap-1.5">
+                            <button onclick="openEventModal('home', 'YELLOW')" class="flex flex-col items-center justify-center py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-bold transition cursor-pointer">
+                                <span class="w-2.5 h-3.5 bg-amber-400 rounded-[2px] mb-1 shadow-sm"></span>
+                                <span>Yellow</span>
+                            </button>
+                            <button onclick="openEventModal('home', 'RED')" class="flex flex-col items-center justify-center py-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-[11px] font-bold transition cursor-pointer">
+                                <span class="w-2.5 h-3.5 bg-rose-500 rounded-[2px] mb-1 shadow-sm"></span>
+                                <span>Red (<span id="ctrl-home-red">0</span>)</span>
+                            </button>
+                            <button onclick="openSubModal('home')" class="flex flex-col items-center justify-center py-2 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 text-[11px] font-bold transition cursor-pointer">
+                                <i data-lucide="arrow-left-right" class="w-3.5 h-3.5 mb-1 text-sky-400"></i>
+                                <span>Sub</span>
+                            </button>
+                        </div>
+                        <div class="flex justify-end">
+                            <button onclick="adjustRedCards('home', -1)" class="text-[10px] text-slate-500 hover:text-slate-300 underline cursor-pointer">Remove Red Card</button>
+                        </div>
+                    </div>
+
+                    <!-- AWAY TEAM CONTROLLER -->
+                    <div class="bg-studio-950 border border-studio-700 rounded-xl p-3.5 space-y-3">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Away Team</span>
+                            <div class="flex items-center gap-2">
+                                <label class="flex items-center gap-1 text-[10px] font-semibold text-slate-400 bg-studio-900 px-1.5 py-0.5 rounded border border-studio-800 cursor-pointer" title="Team Accent / Crest Color">
+                                    <span>Accent</span>
+                                    <input type="color" id="input-away-color" value="#38bdf8" oninput="updateTeam('away')" class="w-4 h-4 rounded cursor-pointer bg-transparent border-0">
+                                </label>
+                                <label class="flex items-center gap-1 text-[10px] font-semibold text-slate-400 bg-studio-900 px-1.5 py-0.5 rounded border border-studio-800 cursor-pointer" title="Team Name Background Color">
+                                    <span>Name BG</span>
+                                    <input type="color" id="input-away-bg-color" value="#1e293b" oninput="updateTeam('away')" class="w-4 h-4 rounded cursor-pointer bg-transparent border-0">
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="flex gap-2">
+                            <input type="text" id="input-away-code" value="MCI" maxlength="3" oninput="updateTeam('away')" class="w-16 bg-studio-900 border border-studio-700 rounded-lg px-2 py-1.5 font-broadcast font-bold text-base uppercase text-center text-white focus:outline-none focus:border-indigo-500">
+                            <input type="text" id="input-away-name" value="Man City" oninput="updateTeam('away')" class="flex-1 min-w-0 bg-studio-900 border border-studio-700 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-indigo-500">
+                        </div>
+
+                        <!-- Score Controls -->
+                        <div class="flex items-center justify-between bg-studio-900 rounded-xl p-2 border border-studio-800">
+                            <button onclick="changeScore('away', -1)" class="w-9 h-9 rounded-lg bg-studio-800 hover:bg-rose-950 hover:text-rose-300 text-slate-300 font-bold text-lg transition cursor-pointer">-1</button>
+                            <span id="ctrl-away-score" class="font-broadcast font-extrabold text-3xl text-white">1</span>
+                            <button onclick="openGoalModal('away')" class="px-3 h-9 rounded-lg bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold text-xs flex items-center gap-1 shadow transition cursor-pointer">
+                                <span>+1 GOAL</span>
+                            </button>
+                        </div>
+
+                        <!-- Event Action Buttons (Yellow, Red, Sub) -->
+                        <div class="grid grid-cols-3 gap-1.5">
+                            <button onclick="openEventModal('away', 'YELLOW')" class="flex flex-col items-center justify-center py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-[11px] font-bold transition cursor-pointer">
+                                <span class="w-2.5 h-3.5 bg-amber-400 rounded-[2px] mb-1 shadow-sm"></span>
+                                <span>Yellow</span>
+                            </button>
+                            <button onclick="openEventModal('away', 'RED')" class="flex flex-col items-center justify-center py-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-[11px] font-bold transition cursor-pointer">
+                                <span class="w-2.5 h-3.5 bg-rose-500 rounded-[2px] mb-1 shadow-sm"></span>
+                                <span>Red (<span id="ctrl-away-red">0</span>)</span>
+                            </button>
+                            <button onclick="openSubModal('away')" class="flex flex-col items-center justify-center py-2 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 text-[11px] font-bold transition cursor-pointer">
+                                <i data-lucide="arrow-left-right" class="w-3.5 h-3.5 mb-1 text-sky-400"></i>
+                                <span>Sub</span>
+                            </button>
+                        </div>
+                        <div class="flex justify-end">
+                            <button onclick="adjustRedCards('away', -1)" class="text-[10px] text-slate-500 hover:text-slate-300 underline cursor-pointer">Remove Red Card</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Penalty Shootout Quick Controls (Shown when PEN period is active) -->
+                <div id="ctrl-penalties-panel" class="hidden bg-studio-950 border border-amber-500/30 rounded-xl p-3 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-bold text-amber-400">Penalty Shootout Tracker</span>
+                        <button onclick="resetPenalties()" class="text-[11px] text-slate-400 hover:text-white underline cursor-pointer">Clear Kicks</button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 text-xs">
+                        <div class="flex items-center justify-between bg-studio-900 px-2.5 py-1.5 rounded-lg">
+                            <span class="font-bold text-slate-300" id="ctrl-pen-home-lbl">ARS</span>
+                            <div class="flex gap-1">
+                                <button onclick="addPenaltyKick('home', true)" class="px-2 py-0.5 bg-emerald-600 text-white rounded font-bold cursor-pointer">✓</button>
+                                <button onclick="addPenaltyKick('home', false)" class="px-2 py-0.5 bg-rose-600 text-white rounded font-bold cursor-pointer">✕</button>
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between bg-studio-900 px-2.5 py-1.5 rounded-lg">
+                            <span class="font-bold text-slate-300" id="ctrl-pen-away-lbl">MCI</span>
+                            <div class="flex gap-1">
+                                <button onclick="addPenaltyKick('away', true)" class="px-2 py-0.5 bg-emerald-600 text-white rounded font-bold cursor-pointer">✓</button>
+                                <button onclick="addPenaltyKick('away', false)" class="px-2 py-0.5 bg-rose-600 text-white rounded font-bold cursor-pointer">✕</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- COLUMN 3: MATCH STATS & GRAPHICS VISIBILITY (3 Cols) -->
+            <div class="lg:col-span-3 bg-studio-900 border border-studio-700/80 rounded-2xl p-4 sm:p-5 flex flex-col justify-between space-y-4 shadow-lg">
+                <div>
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                            <i data-lucide="bar-chart-2" class="w-4 h-4 text-amber-400"></i>
+                            Match Statistics
+                        </h2>
+                        <!-- Toggle Stats Overlay Button -->
+                        <button onclick="toggleStatsOverlay()" id="btn-toggle-stats" class="px-2.5 py-1 rounded-lg text-xs font-bold bg-studio-800 hover:bg-studio-700 text-slate-200 border border-studio-600 transition cursor-pointer">
+                            Show Card
+                        </button>
+                    </div>
+
+                    <div class="space-y-2.5 text-xs">
+                        <!-- Possession Control -->
+                        <div class="bg-studio-950 border border-studio-800 rounded-xl p-2.5">
+                            <div class="flex justify-between text-slate-400 mb-1">
+                                <span id="ctrl-poss-home" class="font-bold text-white">54%</span>
+                                <span>Possession</span>
+                                <span id="ctrl-poss-away" class="font-bold text-white">46%</span>
+                            </div>
+                            <input type="range" min="10" max="90" value="54" id="input-poss-slider" oninput="updatePossession(this.value)" class="w-full accent-indigo-500 cursor-pointer">
+                        </div>
+
+                        <!-- Shots -->
+                        <div class="bg-studio-950 border border-studio-800 rounded-xl px-3 py-2 flex items-center justify-between">
+                            <div class="flex items-center gap-1.5">
+                                <button onclick="adjustStat('shots', 'home', -1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">-</button>
+                                <span id="ctrl-shots-home" class="w-5 text-center font-bold text-white">12</span>
+                                <button onclick="adjustStat('shots', 'home', 1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">+</button>
+                            </div>
+                            <span class="text-slate-400 font-medium">Shots</span>
+                            <div class="flex items-center gap-1.5">
+                                <button onclick="adjustStat('shots', 'away', -1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">-</button>
+                                <span id="ctrl-shots-away" class="w-5 text-center font-bold text-white">9</span>
+                                <button onclick="adjustStat('shots', 'away', 1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">+</button>
+                            </div>
+                        </div>
+
+                        <!-- Shots on Target -->
+                        <div class="bg-studio-950 border border-studio-800 rounded-xl px-3 py-2 flex items-center justify-between">
+                            <div class="flex items-center gap-1.5">
+                                <button onclick="adjustStat('sot', 'home', -1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">-</button>
+                                <span id="ctrl-sot-home" class="w-5 text-center font-bold text-white">5</span>
+                                <button onclick="adjustStat('sot', 'home', 1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">+</button>
+                            </div>
+                            <span class="text-slate-400 font-medium">On Target</span>
+                            <div class="flex items-center gap-1.5">
+                                <button onclick="adjustStat('sot', 'away', -1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">-</button>
+                                <span id="ctrl-sot-away" class="w-5 text-center font-bold text-white">4</span>
+                                <button onclick="adjustStat('sot', 'away', 1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">+</button>
+                            </div>
+                        </div>
+
+                        <!-- Corners -->
+                        <div class="bg-studio-950 border border-studio-800 rounded-xl px-3 py-2 flex items-center justify-between">
+                            <div class="flex items-center gap-1.5">
+                                <button onclick="adjustStat('corners', 'home', -1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">-</button>
+                                <span id="ctrl-corners-home" class="w-5 text-center font-bold text-white">6</span>
+                                <button onclick="adjustStat('corners', 'home', 1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">+</button>
+                            </div>
+                            <span class="text-slate-400 font-medium">Corners</span>
+                            <div class="flex items-center gap-1.5">
+                                <button onclick="adjustStat('corners', 'away', -1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">-</button>
+                                <span id="ctrl-corners-away" class="w-5 text-center font-bold text-white">4</span>
+                                <button onclick="adjustStat('corners', 'away', 1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">+</button>
+                            </div>
+                        </div>
+
+                        <!-- Fouls -->
+                        <div class="bg-studio-950 border border-studio-800 rounded-xl px-3 py-2 flex items-center justify-between">
+                            <div class="flex items-center gap-1.5">
+                                <button onclick="adjustStat('fouls', 'home', -1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">-</button>
+                                <span id="ctrl-fouls-home" class="w-5 text-center font-bold text-white">8</span>
+                                <button onclick="adjustStat('fouls', 'home', 1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">+</button>
+                            </div>
+                            <span class="text-slate-400 font-medium">Fouls</span>
+                            <div class="flex items-center gap-1.5">
+                                <button onclick="adjustStat('fouls', 'away', -1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">-</button>
+                                <span id="ctrl-fouls-away" class="w-5 text-center font-bold text-white">11</span>
+                                <button onclick="adjustStat('fouls', 'away', 1)" class="w-6 h-6 rounded bg-studio-800 hover:bg-studio-700 font-bold cursor-pointer">+</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Clear Active Lower Third Button -->
+                <button onclick="dismissLowerThird(true)" class="w-full py-2 rounded-xl bg-studio-800 hover:bg-studio-700 text-slate-300 text-xs font-semibold border border-studio-600 transition cursor-pointer">
+                    Dismiss Active Lower Third
+                </button>
+            </div>
+        </div>
+
+        <!-- =====================================================================
+             DEDICATED SECTION: TOURNAMENT, MATCH & VENUE LOWER-THIRD CONTROLLER
+        ====================================================================== -->
+        <section class="bg-studio-900 border border-studio-700/80 rounded-2xl p-4 sm:p-5 shadow-lg space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-studio-800 pb-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-lg bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                        <i data-lucide="award" class="w-4 h-4"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                            Tournament, Match & Venue Lower-Thirds
+                            <span id="lt-live-indicator" class="hidden inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500/20 text-rose-400 border border-rose-500/40">
+                                <span class="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping"></span>
+                                ON AIR: <span id="lt-live-name">TOURNAMENT</span>
+                            </span>
+                        </h2>
+                        <p class="text-[11px] text-slate-400">Configure broadcast titles & trigger sleek TV lower-third graphics</p>
+                    </div>
+                </div>
+
+                <!-- Pin vs Auto-Hide Mode & Hide Button -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <button onclick="togglePinLowerThird()" id="btn-pin-lt" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-studio-950 text-slate-300 border border-studio-700 hover:border-indigo-500 transition cursor-pointer" title="Toggle between Auto-hide (8s) and Pinned on screen">
+                        <i data-lucide="pin" class="w-3.5 h-3.5 text-slate-400" id="icon-pin-lt"></i>
+                        <span id="text-pin-lt">Auto-Hide (8s)</span>
+                    </button>
+                    <button onclick="dismissLowerThird(true)" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 transition cursor-pointer">
+                        <i data-lucide="eye-off" class="w-3.5 h-3.5"></i>
+                        <span>Hide Lower Third</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Editable Setup Fields Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                <!-- Tournament Name -->
+                <div>
+                    <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Tournament Name</label>
+                    <input type="text" id="input-tournament-name" value="SUPER CUP 2026" oninput="updateMatchMetadata()" placeholder="e.g. DISTRICT PREMIER LEAGUE" class="w-full bg-studio-950 border border-studio-700 rounded-xl px-3 py-2 text-xs font-semibold text-white focus:outline-none focus:border-indigo-500">
+                </div>
+
+                <!-- Match Title / Stage -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400">Match Title / Stage</label>
+                        <button onclick="autoFillMatchTitle()" class="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 underline cursor-pointer" title="Sync with current Home & Away names">Sync Teams</button>
+                    </div>
+                    <input type="text" id="input-match-stage" value="FINAL • ARSENAL vs MAN CITY" oninput="updateMatchMetadata()" placeholder="e.g. SEMI-FINAL • MATCH 14" class="w-full bg-studio-950 border border-studio-700 rounded-xl px-3 py-2 text-xs font-semibold text-white focus:outline-none focus:border-indigo-500">
+                </div>
+
+                <!-- Venue / Stadium -->
+                <div>
+                    <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Venue / Stadium</label>
+                    <input type="text" id="input-venue-name" value="KALAHANDI STADIUM, BHAWANIPATNA" oninput="updateMatchMetadata()" placeholder="e.g. KALAHANDI STADIUM" class="w-full bg-studio-950 border border-studio-700 rounded-xl px-3 py-2 text-xs font-semibold text-white focus:outline-none focus:border-indigo-500">
+                </div>
+
+                <!-- Subtitle / Kickoff Info -->
+                <div>
+                    <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Subtitle / Broadcast Info</label>
+                    <input type="text" id="input-match-subtitle" value="LIVE BROADCAST • KICKOFF 19:30" oninput="updateMatchMetadata()" placeholder="e.g. LIVE BROADCAST" class="w-full bg-studio-950 border border-studio-700 rounded-xl px-3 py-2 text-xs font-semibold text-white focus:outline-none focus:border-indigo-500">
+                </div>
+            </div>
+
+            <!-- Dedicated Broadcast Trigger Buttons -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                <!-- Show Tournament Button -->
+                <button onclick="triggerInfoLowerThird('TOURNAMENT')" id="btn-lt-TOURNAMENT" class="lt-trigger-btn group flex items-center justify-between bg-studio-950 hover:bg-studio-800 border border-studio-700 hover:border-amber-500/60 rounded-xl px-4 py-3 text-left transition cursor-pointer">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-lg bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0">
+                            <i data-lucide="trophy" class="w-4 h-4"></i>
+                        </div>
+                        <div>
+                            <div class="text-xs font-bold text-white">Show Tournament</div>
+                            <div class="text-[10px] text-slate-400">Title & Stage Banner</div>
+                        </div>
+                    </div>
+                    <span class="lt-badge text-[10px] font-extrabold px-2 py-0.5 rounded bg-studio-800 text-slate-400 group-hover:text-white">AIR</span>
+                </button>
+
+                <!-- Show Match Button -->
+                <button onclick="triggerInfoLowerThird('MATCH')" id="btn-lt-MATCH" class="lt-trigger-btn group flex items-center justify-between bg-studio-950 hover:bg-studio-800 border border-studio-700 hover:border-indigo-500/60 rounded-xl px-4 py-3 text-left transition cursor-pointer">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-lg bg-indigo-500/15 text-indigo-400 flex items-center justify-center shrink-0">
+                            <i data-lucide="swords" class="w-4 h-4"></i>
+                        </div>
+                        <div>
+                            <div class="text-xs font-bold text-white">Show Match</div>
+                            <div class="text-[10px] text-slate-400">Home vs Away Matchup</div>
+                        </div>
+                    </div>
+                    <span class="lt-badge text-[10px] font-extrabold px-2 py-0.5 rounded bg-studio-800 text-slate-400 group-hover:text-white">AIR</span>
+                </button>
+
+                <!-- Show Venue Button -->
+                <button onclick="triggerInfoLowerThird('VENUE')" id="btn-lt-VENUE" class="lt-trigger-btn group flex items-center justify-between bg-studio-950 hover:bg-studio-800 border border-studio-700 hover:border-emerald-500/60 rounded-xl px-4 py-3 text-left transition cursor-pointer">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0">
+                            <i data-lucide="map-pin" class="w-4 h-4"></i>
+                        </div>
+                        <div>
+                            <div class="text-xs font-bold text-white">Show Venue</div>
+                            <div class="text-[10px] text-slate-400">Stadium & Location</div>
+                        </div>
+                    </div>
+                    <span class="lt-badge text-[10px] font-extrabold px-2 py-0.5 rounded bg-studio-800 text-slate-400 group-hover:text-white">AIR</span>
+                </button>
+
+                <!-- Show Full Match Intro Button -->
+                <button onclick="triggerInfoLowerThird('FULL_INTRO')" id="btn-lt-FULL_INTRO" class="lt-trigger-btn group flex items-center justify-between bg-gradient-to-r from-indigo-950/80 to-studio-950 hover:from-indigo-900/80 hover:to-studio-800 border border-indigo-500/40 hover:border-indigo-400 rounded-xl px-4 py-3 text-left transition cursor-pointer">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-lg bg-indigo-500/25 text-indigo-300 flex items-center justify-center shrink-0">
+                            <i data-lucide="tv-2" class="w-4 h-4"></i>
+                        </div>
+                        <div>
+                            <div class="text-xs font-bold text-white">Show Full Match Intro</div>
+                            <div class="text-[10px] text-indigo-300/80">All-in-One Broadcast Card</div>
+                        </div>
+                    </div>
+                    <span class="lt-badge text-[10px] font-extrabold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300">AIR</span>
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <!-- =====================================================================
+         3. OPERATOR QUICK MODALS (Goal Scorer, Card Player, Substitution)
+    ====================================================================== -->
+    <div id="studio-modal-backdrop" class="hidden fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-studio-900 border border-studio-700 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-studio-800 pb-3">
+                <h3 id="modal-title" class="font-bold text-base text-white">Trigger Broadcast Event</h3>
+                <button onclick="closeStudioModal()" class="text-slate-400 hover:text-white cursor-pointer">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Standard Single-Player Input (Goal / Yellow / Red) -->
+            <div id="modal-single-player-fields" class="space-y-3">
+                <div>
+                    <label id="modal-player-label" class="block text-xs font-semibold text-slate-300 mb-1">Player Name & Number</label>
+                    <input type="text" id="modal-player-input" placeholder="e.g. Bukayo Saka #7" class="w-full bg-studio-950 border border-studio-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 mb-1">Match Minute</label>
+                    <input type="text" id="modal-minute-input" value="68'" class="w-full bg-studio-950 border border-studio-700 rounded-xl px-3.5 py-2 text-sm font-mono text-white focus:outline-none focus:border-indigo-500">
+                </div>
+            </div>
+
+            <!-- Substitution Two-Player Input -->
+            <div id="modal-sub-fields" class="hidden space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-emerald-400 mb-1">Player IN (Entering Pitch)</label>
+                    <input type="text" id="modal-sub-in" placeholder="e.g. Gabriel Jesus #9" class="w-full bg-studio-950 border border-studio-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-rose-400 mb-1">Player OUT (Leaving Pitch)</label>
+                    <input type="text" id="modal-sub-out" placeholder="e.g. Kai Havertz #29" class="w-full bg-studio-950 border border-studio-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-rose-500">
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-2">
+                <button onclick="closeStudioModal()" class="px-4 py-2 rounded-xl bg-studio-800 hover:bg-studio-700 text-xs font-semibold text-slate-300 cursor-pointer">Cancel</button>
+                <button id="modal-confirm-btn" onclick="confirmStudioModal()" class="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white shadow cursor-pointer">Trigger On-Air Graphic</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- =====================================================================
+         4. APPLICATION LOGIC, TIMER ENGINE & MULTI-TAB SYNC
+    ====================================================================== -->
+    <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+
+        // BroadcastChannel for real-time dual-window OBS Output <-> Control Room sync
+        const syncChannel = ('BroadcastChannel' in window) ? new BroadcastChannel('procast_football_overlay_v1') : null;
+        const STORAGE_KEY = 'procast_football_state_v1';
+
+        // Core Match State
+        let state = {
+            compTag: 'LIVE',
+            seconds: 4034, // 67:14
+            running: false,
+            period: '2H',
+            addedTime: 3,
+            canvasBg: 'studio', // 'studio' | 'chroma' | 'transparent'
+            overlayScale: 100,
+            showStats: false,
+            obsCleanMode: false,
+            pinLowerThird: false,
+            activeLowerThirdType: null,
+            activeLowerThirdPayload: null,
+            matchInfo: {
+                tournament: 'SUPER CUP 2026',
+                matchStage: 'FINAL • ARSENAL vs MAN CITY',
+                venue: 'KALAHANDI STADIUM, BHAWANIPATNA',
+                subtitle: 'LIVE BROADCAST • KICKOFF 19:30'
+            },
+            home: {
+                name: 'Arsenal',
+                code: 'ARS',
+                color: '#ef4444',
+                bgColor: '#1e293b',
+                score: 2,
+                redCards: 0,
+                penalties: [] // array of booleans
+            },
+            away: {
+                name: 'Man City',
+                code: 'MCI',
+                color: '#38bdf8',
+                bgColor: '#1e293b',
+                score: 1,
+                redCards: 0,
+                penalties: []
+            },
+            stats: {
+                possHome: 54,
+                shotsHome: 12,
+                shotsAway: 9,
+                sotHome: 5,
+                sotAway: 4,
+                cornersHome: 6,
+                cornersAway: 4,
+                foulsHome: 8,
+                foulsAway: 11
+            }
+        };
+
+        let timerInterval = null;
+        let bannerTimeout = null;
+        let currentModalContext = null;
+
+        // Load saved state from localStorage if available (enables instant multi-tab sync)
+        function loadSavedState() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    state = {
+                        ...state,
+                        ...parsed,
+                        home: { ...state.home, ...(parsed.home || {}) },
+                        away: { ...state.away, ...(parsed.away || {}) },
+                        matchInfo: { ...state.matchInfo, ...(parsed.matchInfo || {}) },
+                        running: false // Always start paused on fresh load to prevent dual timers
+                    };
+                }
+            } catch (e) {
+                console.warn('State load fallback:', e);
+            }
+        }
+
+        // Broadcast state updates to other open tabs & persist
+        function broadcastState(eventPayload = null) {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+                if (syncChannel) {
+                    syncChannel.postMessage({ type: 'STATE_SYNC', state, eventPayload });
+                }
+            } catch (e) {
+                console.warn('Sync warning:', e);
+            }
+        }
+
+        // Listen for incoming sync messages from Control Room tab
+        if (syncChannel) {
+            syncChannel.onmessage = (event) => {
+                if (event.data && event.data.type === 'STATE_SYNC') {
+                    const prevActiveType = state.activeLowerThirdType;
+                    state = { ...state, ...event.data.state };
+                    renderAll();
+                    if (event.data.eventPayload) {
+                        if (event.data.eventPayload.type === 'DISMISS') {
+                            dismissLowerThird(false);
+                        } else {
+                            renderLowerThird(event.data.eventPayload, false);
+                        }
+                    } else if (!state.activeLowerThirdType && prevActiveType) {
+                        dismissLowerThird(false);
+                    }
+                    // Keep visual clock synced without running duplicate intervals
+                    if (timerInterval && !state.running) {
+                        clearInterval(timerInterval);
+                        timerInterval = null;
+                    }
+                }
+            };
+        }
+
+        // Format MM:SS
+        function formatClock(totalSeconds) {
+            const mins = Math.floor(totalSeconds / 60);
+            const secs = totalSeconds % 60;
+            return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+
+        // Get current broadcast minute string (e.g., "68'" or "90+2'")
+        function getCurrentMinuteLabel() {
+            const currentMin = Math.floor(state.seconds / 60) + 1;
+            if (state.period === '1H' && currentMin > 45) {
+                return `45+${currentMin - 45}'`;
+            }
+            if (state.period === '2H' && currentMin > 90) {
+                return `90+${currentMin - 90}'`;
+            }
+            return `${currentMin}'`;
+        }
+
+        // =====================================================================
+        // TIMER CONTROLS
+        // =====================================================================
+        function toggleClock() {
+            state.running = !state.running;
+            if (state.running) {
+                timerInterval = setInterval(() => {
+                    state.seconds++;
+                    updateClockUI();
+                    broadcastState();
+                }, 1000);
+            } else {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            updateClockUI();
+            broadcastState();
+        }
+
+        function resetClock() {
+            state.running = false;
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+            }
+            state.seconds = 0;
+            document.getElementById('input-custom-min').value = 0;
+            document.getElementById('input-custom-sec').value = 0;
+            updateClockUI();
+            broadcastState();
+        }
+
+        function applyCustomTime() {
+            const m = Math.max(0, parseInt(document.getElementById('input-custom-min').value, 10) || 0);
+            const s = Math.min(59, Math.max(0, parseInt(document.getElementById('input-custom-sec').value, 10) || 0));
+            state.seconds = (m * 60) + s;
+            updateClockUI();
+            broadcastState();
+        }
+
+        function setPeriod(period) {
+            state.period = period;
+            renderAll();
+            broadcastState();
+        }
+
+        function adjustAddedTime(delta) {
+            state.addedTime = Math.max(0, Math.min(15, state.addedTime + delta));
+            renderAll();
+            broadcastState();
+        }
+
+        function updateClockUI() {
+            const formatted = formatClock(state.seconds);
+            document.getElementById('overlay-clock').textContent = formatted;
+            document.getElementById('ctrl-clock-display').textContent = formatted;
+
+            const toggleBtn = document.getElementById('btn-clock-toggle');
+            const badge = document.getElementById('clock-status-badge');
+
+            if (state.running) {
+                toggleBtn.innerHTML = `<i data-lucide="pause" class="w-4 h-4 fill-current"></i><span>PAUSE</span>`;
+                toggleBtn.className = "flex items-center gap-1.5 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-bold px-4 py-2.5 rounded-xl shadow transition cursor-pointer";
+                badge.textContent = "LIVE RUNNING";
+                badge.className = "text-[11px] font-bold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30";
+            } else {
+                toggleBtn.innerHTML = `<i data-lucide="play" class="w-4 h-4 fill-current"></i><span>START</span>`;
+                toggleBtn.className = "flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-bold px-4 py-2.5 rounded-xl shadow transition cursor-pointer";
+                badge.textContent = "PAUSED";
+                badge.className = "text-[11px] font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30";
+            }
+            lucide.createIcons();
+        }
+
+        // =====================================================================
+        // TEAM & SCORE UPDATES
+        // =====================================================================
+        function updateCompTag(val) {
+            state.compTag = val.trim().toUpperCase() || 'LIVE';
+            document.getElementById('overlay-comp-tag').textContent = state.compTag;
+            broadcastState();
+        }
+
+        function updateTeam(side) {
+            const codeInput = document.getElementById(`input-${side}-code`).value.trim().toUpperCase();
+            const nameInput = document.getElementById(`input-${side}-name`).value.trim();
+            const colorInput = document.getElementById(`input-${side}-color`).value;
+            const bgColorInput = document.getElementById(`input-${side}-bg-color`).value;
+
+            state[side].code = codeInput || (side === 'home' ? 'HOM' : 'AWY');
+            state[side].name = nameInput || (side === 'home' ? 'Home' : 'Away');
+            state[side].color = colorInput;
+            state[side].bgColor = bgColorInput;
+
+            renderAll();
+            broadcastState();
+        }
+
+        function changeScore(side, delta) {
+            state[side].score = Math.max(0, state[side].score + delta);
+            renderAll();
+            broadcastState();
+        }
+
+        function adjustRedCards(side, delta) {
+            state[side].redCards = Math.max(0, Math.min(4, state[side].redCards + delta));
+            renderAll();
+            broadcastState();
+        }
+
+        // Penalty Shootout Kicks
+        function addPenaltyKick(side, scored) {
+            if (state[side].penalties.length >= 10) state[side].penalties.shift();
+            state[side].penalties.push(scored);
+            renderAll();
+            broadcastState();
+        }
+
+        function resetPenalties() {
+            state.home.penalties = [];
+            state.away.penalties = [];
+            renderAll();
+            broadcastState();
+        }
+
+        // =====================================================================
+        // MATCH STATISTICS & STATS OVERLAY
+        // =====================================================================
+        function toggleStatsOverlay() {
+            state.showStats = !state.showStats;
+            renderStatsCard();
+            broadcastState();
+        }
+
+        function updatePossession(val) {
+            state.stats.possHome = parseInt(val, 10);
+            renderStatsCard();
+            broadcastState();
+        }
+
+        function adjustStat(metric, side, delta) {
+            const key = `${metric}${side === 'home' ? 'Home' : 'Away'}`;
+            state.stats[key] = Math.max(0, state.stats[key] + delta);
+            renderStatsCard();
+            broadcastState();
+        }
+
+        function renderStatsCard() {
+            const card = document.getElementById('overlay-stats-card');
+            const btn = document.getElementById('btn-toggle-stats');
+
+            if (state.showStats) {
+                card.classList.remove('hidden');
+                requestAnimationFrame(() => {
+                    card.classList.remove('opacity-0', 'scale-95');
+                    card.classList.add('opacity-100', 'scale-100');
+                });
+                btn.textContent = 'Hide Card';
+                btn.className = 'px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-600 text-white border border-indigo-500 transition cursor-pointer';
+            } else {
+                card.classList.add('opacity-0', 'scale-95');
+                card.classList.remove('opacity-100', 'scale-100');
+                setTimeout(() => {
+                    if (!state.showStats) card.classList.add('hidden');
+                }, 320);
+                btn.textContent = 'Show Card';
+                btn.className = 'px-2.5 py-1 rounded-lg text-xs font-bold bg-studio-800 hover:bg-studio-700 text-slate-200 border border-studio-600 transition cursor-pointer';
+            }
+
+            // Team Headers & Colors
+            document.getElementById('stats-home-name').textContent = state.home.name;
+            document.getElementById('stats-away-name').textContent = state.away.name;
+            document.getElementById('stats-home-dot').style.backgroundColor = state.home.color;
+            document.getElementById('stats-away-dot').style.backgroundColor = state.away.color;
+
+            // Possession
+            const possH = state.stats.possHome;
+            const possA = 100 - possH;
+            document.getElementById('ctrl-poss-home').textContent = `${possH}%`;
+            document.getElementById('ctrl-poss-away').textContent = `${possA}%`;
+            document.getElementById('stat-val-poss-home').textContent = `${possH}%`;
+            document.getElementById('stat-val-poss-away').textContent = `${possA}%`;
+            document.getElementById('stat-bar-poss-home').style.width = `${possH}%`;
+            document.getElementById('stat-bar-poss-away').style.width = `${possA}%`;
+            document.getElementById('stat-bar-poss-home').style.backgroundColor = state.home.color;
+            document.getElementById('stat-bar-poss-away').style.backgroundColor = state.away.color;
+
+            // Helper for proportional bars
+            const setBar = (metric, hVal, aVal) => {
+                document.getElementById(`ctrl-${metric}-home`).textContent = hVal;
+                document.getElementById(`ctrl-${metric}-away`).textContent = aVal;
+                document.getElementById(`stat-val-${metric}-home`).textContent = hVal;
+                document.getElementById(`stat-val-${metric}-away`).textContent = aVal;
+
+                const barH = document.getElementById(`stat-bar-${metric}-home`);
+                const barA = document.getElementById(`stat-bar-${metric}-away`);
+                if (barH && barA) {
+                    const total = hVal + aVal;
+                    const pctH = total === 0 ? 50 : Math.round((hVal / total) * 100);
+                    barH.style.width = `${pctH}%`;
+                    barA.style.width = `${100 - pctH}%`;
+                    barH.style.backgroundColor = state.home.color;
+                    barA.style.backgroundColor = state.away.color;
+                }
+            };
+
+            setBar('shots', state.stats.shotsHome, state.stats.shotsAway);
+            setBar('sot', state.stats.sotHome, state.stats.sotAway);
+            setBar('corners', state.stats.cornersHome, state.stats.cornersAway);
+            setBar('fouls', state.stats.foulsHome, state.stats.foulsAway);
+        }
+
+        // =====================================================================
+        // MODAL & LOWER THIRD EVENT BANNERS
+        // =====================================================================
+        function openGoalModal(side) {
+            currentModalContext = { side, type: 'GOAL' };
+            const teamName = state[side].name;
+            document.getElementById('modal-title').textContent = `⚽ GOAL — ${teamName}`;
+            document.getElementById('modal-single-player-fields').classList.remove('hidden');
+            document.getElementById('modal-sub-fields').classList.add('hidden');
+            document.getElementById('modal-player-label').textContent = 'Goal Scorer Name & Number';
+            document.getElementById('modal-player-input').value = '';
+            document.getElementById('modal-player-input').placeholder = side === 'home' ? 'e.g. Bukayo Saka #7' : 'e.g. Erling Haaland #9';
+            document.getElementById('modal-minute-input').value = getCurrentMinuteLabel();
+            document.getElementById('modal-confirm-btn').className = 'px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white shadow cursor-pointer';
+            document.getElementById('modal-confirm-btn').textContent = 'Confirm Goal & Show Banner';
+            showModal();
+        }
+
+        function openEventModal(side, cardType) {
+            currentModalContext = { side, type: cardType };
+            const teamName = state[side].name;
+            const isYellow = cardType === 'YELLOW';
+            document.getElementById('modal-title').textContent = `${isYellow ? '🟨 Yellow Card' : '🟥 Red Card'} — ${teamName}`;
+            document.getElementById('modal-single-player-fields').classList.remove('hidden');
+            document.getElementById('modal-sub-fields').classList.add('hidden');
+            document.getElementById('modal-player-label').textContent = 'Booked Player Name';
+            document.getElementById('modal-player-input').value = '';
+            document.getElementById('modal-player-input').placeholder = 'e.g. Declan Rice #41';
+            document.getElementById('modal-minute-input').value = getCurrentMinuteLabel();
+            document.getElementById('modal-confirm-btn').className = isYellow
+                ? 'px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-xs font-bold text-slate-950 shadow cursor-pointer'
+                : 'px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white shadow cursor-pointer';
+            document.getElementById('modal-confirm-btn').textContent = `Show ${isYellow ? 'Yellow' : 'Red'} Card Banner`;
+            showModal();
+        }
+
+        function openSubModal(side) {
+            currentModalContext = { side, type: 'SUB' };
+            const teamName = state[side].name;
+            document.getElementById('modal-title').textContent = `🔄 Substitution — ${teamName}`;
+            document.getElementById('modal-single-player-fields').classList.add('hidden');
+            document.getElementById('modal-sub-fields').classList.remove('hidden');
+            document.getElementById('modal-sub-in').value = '';
+            document.getElementById('modal-sub-out').value = '';
+            document.getElementById('modal-confirm-btn').className = 'px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-xs font-bold text-white shadow cursor-pointer';
+            document.getElementById('modal-confirm-btn').textContent = 'Show Substitution Banner';
+            showModal();
+        }
+
+        function showModal() {
+            document.getElementById('studio-modal-backdrop').classList.remove('hidden');
+            setTimeout(() => {
+                const input = currentModalContext.type === 'SUB'
+                    ? document.getElementById('modal-sub-in')
+                    : document.getElementById('modal-player-input');
+                input.focus();
+            }, 50);
+        }
+
+        function closeStudioModal() {
+            document.getElementById('studio-modal-backdrop').classList.add('hidden');
+            currentModalContext = null;
+        }
+
+        function confirmStudioModal() {
+            if (!currentModalContext) return;
+            const { side, type } = currentModalContext;
+            const team = state[side];
+
+            let payload = null;
+
+            if (type === 'GOAL') {
+                state[side].score += 1;
+                const scorer = document.getElementById('modal-player-input').value.trim() || `${team.name} Goal`;
+                const minute = document.getElementById('modal-minute-input').value.trim() || getCurrentMinuteLabel();
+                payload = {
+                    type: 'GOAL',
+                    teamName: team.name,
+                    teamCode: team.code,
+                    teamColor: team.color,
+                    player: scorer,
+                    minute
+                };
+            } else if (type === 'YELLOW' || type === 'RED') {
+                if (type === 'RED') {
+                    state[side].redCards = Math.min(4, state[side].redCards + 1);
+                }
+                const player = document.getElementById('modal-player-input').value.trim() || 'Player Booked';
+                const minute = document.getElementById('modal-minute-input').value.trim() || getCurrentMinuteLabel();
+                payload = {
+                    type,
+                    teamName: team.name,
+                    teamCode: team.code,
+                    teamColor: team.color,
+                    player,
+                    minute
+                };
+            } else if (type === 'SUB') {
+                const playerIn = document.getElementById('modal-sub-in').value.trim() || 'Substitute IN';
+                const playerOut = document.getElementById('modal-sub-out').value.trim() || 'Player OUT';
+                payload = {
+                    type: 'SUB',
+                    teamName: team.name,
+                    teamCode: team.code,
+                    teamColor: team.color,
+                    playerIn,
+                    playerOut,
+                    minute: getCurrentMinuteLabel()
+                };
+            }
+
+            closeStudioModal();
+            renderAll();
+            if (payload) {
+                renderLowerThird(payload, true);
+                broadcastState(payload);
+            }
+        }
+
+        // =====================================================================
+        // TOURNAMENT, MATCH & VENUE LOWER-THIRD CONTROLS
+        // =====================================================================
+        function updateMatchMetadata() {
+            state.matchInfo.tournament = document.getElementById('input-tournament-name').value;
+            state.matchInfo.matchStage = document.getElementById('input-match-stage').value;
+            state.matchInfo.venue = document.getElementById('input-venue-name').value;
+            state.matchInfo.subtitle = document.getElementById('input-match-subtitle').value;
+
+            // If an info lower-third is currently pinned/visible on screen, live-update it immediately
+            if (['TOURNAMENT', 'MATCH', 'VENUE', 'FULL_INTRO'].includes(state.activeLowerThirdType)) {
+                const updatedPayload = buildInfoLowerThirdPayload(state.activeLowerThirdType);
+                renderLowerThird(updatedPayload, false);
+                broadcastState(updatedPayload);
+            } else {
+                broadcastState();
+            }
+        }
+
+        function autoFillMatchTitle() {
+            const currentStage = document.getElementById('input-match-stage').value;
+            const prefix = currentStage.includes('•') ? currentStage.split('•')[0].trim() : 'MATCHDAY';
+            const syncedTitle = `${prefix} • ${state.home.name.toUpperCase()} vs ${state.away.name.toUpperCase()}`;
+            document.getElementById('input-match-stage').value = syncedTitle;
+            updateMatchMetadata();
+        }
+
+        function togglePinLowerThird() {
+            state.pinLowerThird = !state.pinLowerThird;
+            if (state.pinLowerThird && bannerTimeout) {
+                clearTimeout(bannerTimeout);
+                bannerTimeout = null;
+            } else if (!state.pinLowerThird && state.activeLowerThirdType) {
+                bannerTimeout = setTimeout(() => {
+                    dismissLowerThird(true);
+                }, 8000);
+            }
+            updateLowerThirdControlIndicators();
+            broadcastState();
+        }
+
+        function buildInfoLowerThirdPayload(infoType) {
+            return {
+                type: infoType,
+                tournament: state.matchInfo.tournament.trim() || 'TOURNAMENT',
+                matchStage: state.matchInfo.matchStage.trim() || `${state.home.name} vs ${state.away.name}`,
+                venue: state.matchInfo.venue.trim() || 'STADIUM',
+                subtitle: state.matchInfo.subtitle.trim() || 'LIVE BROADCAST',
+                homeName: state.home.name,
+                homeCode: state.home.code,
+                homeColor: state.home.color,
+                homeBgColor: state.home.bgColor,
+                homeScore: state.home.score,
+                awayName: state.away.name,
+                awayCode: state.away.code,
+                awayColor: state.away.color,
+                awayBgColor: state.away.bgColor,
+                awayScore: state.away.score
+            };
+        }
+
+        function triggerInfoLowerThird(infoType) {
+            // Toggle off if clicking the already active info lower-third
+            if (state.activeLowerThirdType === infoType) {
+                dismissLowerThird(true);
+                return;
+            }
+            // Ensure any existing banner on screen is cleared before showing the new one
+            dismissLowerThird(false);
+            const payload = buildInfoLowerThirdPayload(infoType);
+            renderLowerThird(payload, true);
+            broadcastState(payload);
+        }
+
+        function updateLowerThirdControlIndicators() {
+            // Update Pin Button UI
+            const pinBtn = document.getElementById('btn-pin-lt');
+            const pinText = document.getElementById('text-pin-lt');
+            const pinIcon = document.getElementById('icon-pin-lt');
+            if (pinBtn && pinText) {
+                if (state.pinLowerThird) {
+                    pinBtn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 text-white border border-indigo-400 shadow transition cursor-pointer';
+                    pinText.textContent = 'Pinned On-Air';
+                    if (pinIcon) pinIcon.className = 'w-3.5 h-3.5 text-white';
+                } else {
+                    pinBtn.className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-studio-950 text-slate-300 border border-studio-700 hover:border-indigo-500 transition cursor-pointer';
+                    pinText.textContent = 'Auto-Hide (8s)';
+                    if (pinIcon) pinIcon.className = 'w-3.5 h-3.5 text-slate-400';
+                }
+            }
+
+            // Update ON AIR Badge
+            const liveIndicator = document.getElementById('lt-live-indicator');
+            const liveName = document.getElementById('lt-live-name');
+            if (liveIndicator && liveName) {
+                if (state.activeLowerThirdType) {
+                    liveIndicator.classList.remove('hidden');
+                    liveName.textContent = state.activeLowerThirdType.replace('_', ' ');
+                } else {
+                    liveIndicator.classList.add('hidden');
+                }
+            }
+
+            // Highlight active trigger button
+            ['TOURNAMENT', 'MATCH', 'VENUE', 'FULL_INTRO'].forEach(type => {
+                const btn = document.getElementById(`btn-lt-${type}`);
+                if (!btn) return;
+                const badge = btn.querySelector('.lt-badge');
+                if (state.activeLowerThirdType === type) {
+                    btn.classList.add('ring-2', 'ring-emerald-400', 'bg-studio-800');
+                    if (badge) {
+                        badge.textContent = 'LIVE';
+                        badge.className = 'lt-badge text-[10px] font-extrabold px-2 py-0.5 rounded bg-emerald-500 text-slate-950 animate-pulse';
+                    }
+                } else {
+                    btn.classList.remove('ring-2', 'ring-emerald-400', 'bg-studio-800');
+                    if (badge) {
+                        badge.textContent = 'AIR';
+                        badge.className = type === 'FULL_INTRO'
+                            ? 'lt-badge text-[10px] font-extrabold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300'
+                            : 'lt-badge text-[10px] font-extrabold px-2 py-0.5 rounded bg-studio-800 text-slate-400 group-hover:text-white';
+                    }
+                }
+            });
+        }
+
+        function triggerSummaryBanner(label) {
+            // Dismiss any active lower-third first to ensure only one is displayed at a time
+            dismissLowerThird(false);
+            const payload = {
+                type: 'SUMMARY',
+                label,
+                homeName: state.home.name,
+                homeCode: state.home.code,
+                homeColor: state.home.color,
+                homeScore: state.home.score,
+                awayName: state.away.name,
+                awayCode: state.away.code,
+                awayColor: state.away.color,
+                awayScore: state.away.score
+            };
+            renderLowerThird(payload, true);
+            broadcastState(payload);
+        }
+
+        function renderLowerThird(payload, animateEntry = true) {
+            const container = document.getElementById('lower-third-container');
+            
+            // If another banner is currently active, transition it out immediately and swap in the new one
+            const existingBanner = document.getElementById('active-banner');
+            if (existingBanner) {
+                existingBanner.remove();
+            }
+            if (bannerTimeout) {
+                clearTimeout(bannerTimeout);
+                bannerTimeout = null;
+            }
+
+            state.activeLowerThirdType = payload.type;
+            state.activeLowerThirdPayload = payload;
+            updateLowerThirdControlIndicators();
+
+            const animClass = animateEntry ? 'banner-enter' : '';
+            let html = '';
+
+            if (payload.type === 'GOAL') {
+                html = `
+                <div id="active-banner" class="${animClass} goal-glow relative overflow-hidden flex items-stretch rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 max-w-xl w-full sm:w-auto">
+                    <div class="w-2.5 shrink-0" style="background-color: ${payload.teamColor};"></div>
+                    <div class="relative overflow-hidden shimmer-bar bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-3 flex flex-col justify-center items-center text-slate-950">
+                        <span class="font-broadcast font-black text-2xl sm:text-3xl tracking-widest leading-none">GOAL!</span>
+                        <span class="text-[10px] font-extrabold uppercase tracking-widest mt-0.5 text-slate-900">${escapeHtml(payload.teamCode)}</span>
+                    </div>
+                    <div class="px-5 py-3 flex items-center justify-between gap-6 bg-gradient-to-r from-slate-900 to-slate-950 flex-1">
+                        <div>
+                            <div class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">${escapeHtml(payload.teamName)}</div>
+                            <div class="font-broadcast font-extrabold text-xl sm:text-2xl text-white tracking-wide leading-tight">${escapeHtml(payload.player)}</div>
+                        </div>
+                        <div class="px-3 py-1 rounded-lg bg-white/10 border border-white/15 font-broadcast font-extrabold text-xl text-amber-300">
+                            ${escapeHtml(payload.minute)}
+                        </div>
+                    </div>
+                </div>`;
+            } else if (payload.type === 'YELLOW' || payload.type === 'RED') {
+                const isYellow = payload.type === 'YELLOW';
+                const badgeBg = isYellow ? 'bg-amber-400 text-slate-950' : 'bg-rose-600 text-white';
+                const titleText = isYellow ? 'YELLOW CARD' : 'RED CARD';
+                const accentText = isYellow ? 'text-amber-400' : 'text-rose-400';
+
+                html = `
+                <div id="active-banner" class="${animClass} flex items-stretch rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 overflow-hidden max-w-lg w-full sm:w-auto">
+                    <div class="w-2 shrink-0" style="background-color: ${payload.teamColor};"></div>
+                    <div class="${badgeBg} px-4 py-3 flex items-center gap-2.5">
+                        <div class="w-4 h-6 rounded-[3px] ${isYellow ? 'bg-slate-950/20 border border-slate-950/40' : 'bg-white/25 border border-white/40'}"></div>
+                        <span class="font-broadcast font-extrabold text-lg sm:text-xl tracking-wider leading-none">${titleText}</span>
+                    </div>
+                    <div class="px-5 py-3 flex items-center justify-between gap-5 flex-1">
+                        <div>
+                            <div class="text-[11px] font-bold uppercase tracking-wider ${accentText}">${escapeHtml(payload.teamName)}</div>
+                            <div class="font-broadcast font-bold text-xl text-white leading-tight">${escapeHtml(payload.player)}</div>
+                        </div>
+                        <span class="font-broadcast font-bold text-lg text-slate-300 bg-white/10 px-2.5 py-0.5 rounded-lg">${escapeHtml(payload.minute)}</span>
+                    </div>
+                </div>`;
+            } else if (payload.type === 'SUB') {
+                html = `
+                <div id="active-banner" class="${animClass} flex items-stretch rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 overflow-hidden max-w-xl w-full sm:w-auto">
+                    <div class="w-2 shrink-0" style="background-color: ${payload.teamColor};"></div>
+                    <div class="bg-slate-900 px-4 py-3 flex flex-col justify-center border-r border-white/10">
+                        <span class="text-[10px] font-extrabold tracking-widest uppercase text-sky-400">SUBSTITUTION</span>
+                        <span class="font-broadcast font-bold text-lg text-white leading-tight">${escapeHtml(payload.teamName)}</span>
+                    </div>
+                    <div class="px-4 py-2.5 flex flex-col justify-center gap-1 min-w-[210px]">
+                        <div class="flex items-center gap-2 text-sm">
+                            <span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-extrabold text-[10px]">IN</span>
+                            <span class="font-broadcast font-bold text-base text-white leading-none">${escapeHtml(payload.playerIn)}</span>
+                        </div>
+                        <div class="flex items-center gap-2 text-sm">
+                            <span class="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 font-extrabold text-[10px]">OUT</span>
+                            <span class="font-broadcast font-semibold text-base text-slate-400 leading-none">${escapeHtml(payload.playerOut)}</span>
+                        </div>
+                    </div>
+                </div>`;
+            } else if (payload.type === 'SUMMARY') {
+                html = `
+                <div id="active-banner" class="${animClass} flex items-stretch rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 overflow-hidden">
+                    <div class="bg-indigo-600 px-4 py-3 flex items-center">
+                        <span class="font-broadcast font-extrabold text-base sm:text-lg tracking-widest uppercase text-white">${escapeHtml(payload.label)}</span>
+                    </div>
+                    <div class="flex items-center px-4 py-2.5 gap-3">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-6 rounded-full" style="background-color: ${payload.homeColor};"></span>
+                            <span class="font-broadcast font-bold text-xl text-white uppercase">${escapeHtml(payload.homeName)}</span>
+                        </div>
+                        <div class="bg-white text-slate-950 px-3 py-0.5 rounded-lg font-broadcast font-extrabold text-2xl">
+                            ${payload.homeScore} - ${payload.awayScore}
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="font-broadcast font-bold text-xl text-white uppercase">${escapeHtml(payload.awayName)}</span>
+                            <span class="w-2.5 h-6 rounded-full" style="background-color: ${payload.awayColor};"></span>
+                        </div>
+                    </div>
+                </div>`;
+            } else if (payload.type === 'TOURNAMENT') {
+                html = `
+                <div id="active-banner" class="${animClass} relative overflow-hidden flex items-stretch rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 max-w-2xl w-full sm:w-auto">
+                    <div class="w-2.5 bg-gradient-to-b from-amber-400 to-amber-600 shrink-0"></div>
+                    <div class="relative overflow-hidden shimmer-bar bg-gradient-to-br from-amber-500 to-amber-600 px-4 py-3 flex items-center justify-center text-slate-950">
+                        <svg class="w-7 h-7 drop-shadow-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
+                        </svg>
+                    </div>
+                    <div class="px-5 py-3 flex flex-col justify-center bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950">
+                        <div class="flex items-center gap-2">
+                            <span class="px-2 py-0.5 rounded bg-amber-400/15 border border-amber-400/30 text-[10px] font-extrabold tracking-widest uppercase text-amber-300">${escapeHtml(payload.subtitle)}</span>
+                        </div>
+                        <div class="font-broadcast font-black text-2xl sm:text-3xl text-white tracking-wider uppercase leading-tight mt-0.5">${escapeHtml(payload.tournament)}</div>
+                        <div class="text-xs font-bold tracking-widest uppercase text-slate-300 mt-0.5">${escapeHtml(payload.matchStage)}</div>
+                    </div>
+                </div>`;
+            } else if (payload.type === 'MATCH') {
+                const homeBg = payload.homeBgColor || '#1e293b';
+                const awayBg = payload.awayBgColor || '#1e293b';
+                html = `
+                <div id="active-banner" class="${animClass} flex flex-col rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 overflow-hidden max-w-2xl w-full sm:w-auto">
+                    <div class="bg-gradient-to-r from-indigo-700 via-indigo-600 to-slate-900 px-4 py-1.5 flex items-center justify-between gap-6 border-b border-white/15">
+                        <span class="text-[11px] font-extrabold tracking-widest uppercase text-white">${escapeHtml(payload.tournament)}</span>
+                        <span class="text-[10px] font-bold tracking-widest uppercase text-indigo-200">${escapeHtml(payload.matchStage)}</span>
+                    </div>
+                    <div class="flex items-stretch">
+                        <div class="w-2.5 shrink-0" style="background-color: ${payload.homeColor};"></div>
+                        <div class="px-5 py-3 flex items-center gap-2.5 flex-1" style="background-color: ${homeBg};">
+                            <span class="w-3.5 h-3.5 rounded-full border border-white/30 shadow shrink-0" style="background-color: ${payload.homeColor};"></span>
+                            <span class="font-broadcast font-extrabold text-2xl sm:text-3xl text-white uppercase tracking-wide leading-none drop-shadow">${escapeHtml(payload.homeName)}</span>
+                        </div>
+                        <div class="px-3.5 py-3 flex items-center justify-center bg-slate-950 border-x border-white/10 font-broadcast font-black text-sm sm:text-base tracking-widest text-amber-400">
+                            VS
+                        </div>
+                        <div class="px-5 py-3 flex items-center justify-end gap-2.5 flex-1" style="background-color: ${awayBg};">
+                            <span class="font-broadcast font-extrabold text-2xl sm:text-3xl text-white uppercase tracking-wide leading-none drop-shadow">${escapeHtml(payload.awayName)}</span>
+                            <span class="w-3.5 h-3.5 rounded-full border border-white/30 shadow shrink-0" style="background-color: ${payload.awayColor};"></span>
+                        </div>
+                        <div class="w-2.5 shrink-0" style="background-color: ${payload.awayColor};"></div>
+                    </div>
+                </div>`;
+            } else if (payload.type === 'VENUE') {
+                html = `
+                <div id="active-banner" class="${animClass} flex items-stretch rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 overflow-hidden max-w-2xl w-full sm:w-auto">
+                    <div class="w-2.5 bg-emerald-500 shrink-0"></div>
+                    <div class="bg-gradient-to-br from-emerald-600 to-teal-700 px-4 py-3 flex items-center justify-center text-white">
+                        <svg class="w-7 h-7 drop-shadow-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>
+                        </svg>
+                    </div>
+                    <div class="px-5 py-3 flex flex-col justify-center bg-gradient-to-r from-slate-900 to-slate-950">
+                        <div class="text-[10px] font-extrabold tracking-[0.2em] uppercase text-emerald-400">LIVE FROM THE VENUE</div>
+                        <div class="font-broadcast font-black text-2xl sm:text-3xl text-white tracking-wide uppercase leading-tight mt-0.5">${escapeHtml(payload.venue)}</div>
+                        <div class="text-xs font-semibold tracking-wider uppercase text-slate-400 mt-0.5">${escapeHtml(payload.tournament)} • ${escapeHtml(payload.subtitle)}</div>
+                    </div>
+                </div>`;
+            } else if (payload.type === 'FULL_INTRO') {
+                const homeBg = payload.homeBgColor || '#1e293b';
+                const awayBg = payload.awayBgColor || '#1e293b';
+                html = `
+                <div id="active-banner" class="${animClass} flex flex-col rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 overflow-hidden max-w-3xl w-full sm:w-auto">
+                    <!-- Top Tournament Ribbon -->
+                    <div class="bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-4 py-1 flex items-center justify-between gap-4 text-slate-950">
+                        <span class="font-broadcast font-black text-sm tracking-widest uppercase">${escapeHtml(payload.tournament)}</span>
+                        <span class="text-[10px] font-extrabold tracking-widest uppercase bg-slate-950/15 px-2 py-0.5 rounded">${escapeHtml(payload.matchStage)}</span>
+                    </div>
+                    <!-- Middle Matchup Row -->
+                    <div class="flex items-stretch">
+                        <div class="w-2.5 shrink-0" style="background-color: ${payload.homeColor};"></div>
+                        <div class="px-5 py-3 flex items-center gap-2.5 flex-1" style="background-color: ${homeBg};">
+                            <span class="w-4 h-4 rounded-full border border-white/30 shadow shrink-0" style="background-color: ${payload.homeColor};"></span>
+                            <span class="font-broadcast font-black text-2xl sm:text-3xl text-white uppercase tracking-wide leading-none drop-shadow">${escapeHtml(payload.homeName)}</span>
+                        </div>
+                        <div class="px-3.5 py-3 flex items-center justify-center bg-slate-950 border-x border-white/10 font-broadcast font-black text-base tracking-widest text-indigo-300">
+                            VS
+                        </div>
+                        <div class="px-5 py-3 flex items-center justify-end gap-2.5 flex-1" style="background-color: ${awayBg};">
+                            <span class="font-broadcast font-black text-2xl sm:text-3xl text-white uppercase tracking-wide leading-none drop-shadow">${escapeHtml(payload.awayName)}</span>
+                            <span class="w-4 h-4 rounded-full border border-white/30 shadow shrink-0" style="background-color: ${payload.awayColor};"></span>
+                        </div>
+                        <div class="w-2.5 shrink-0" style="background-color: ${payload.awayColor};"></div>
+                    </div>
+                    <!-- Bottom Venue Bar -->
+                    <div class="bg-slate-900/95 border-t border-white/10 px-4 py-1.5 flex items-center justify-between gap-4 text-xs">
+                        <div class="flex items-center gap-1.5 text-emerald-400 font-bold tracking-wider uppercase">
+                            <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>
+                            </svg>
+                            <span>${escapeHtml(payload.venue)}</span>
+                        </div>
+                        <span class="text-[10px] font-bold tracking-widest uppercase text-slate-400">${escapeHtml(payload.subtitle)}</span>
+                    </div>
+                </div>`;
+            }
+
+            container.innerHTML = html;
+
+            // Auto-hide banner after 8 seconds unless Pinned mode is enabled
+            if (!state.pinLowerThird) {
+                bannerTimeout = setTimeout(() => {
+                    dismissLowerThird(true);
+                }, 8000);
+            }
+        }
+
+        function dismissLowerThird(shouldBroadcast = false) {
+            if (bannerTimeout) {
+                clearTimeout(bannerTimeout);
+                bannerTimeout = null;
+            }
+            state.activeLowerThirdType = null;
+            state.activeLowerThirdPayload = null;
+            updateLowerThirdControlIndicators();
+
+            const banner = document.getElementById('active-banner');
+            if (banner) {
+                banner.classList.remove('banner-enter', 'goal-glow');
+                banner.classList.add('banner-exit');
+                setTimeout(() => {
+                    const container = document.getElementById('lower-third-container');
+                    if (container && banner.parentNode === container) {
+                        container.innerHTML = '';
+                    }
+                }, 380);
+            }
+            if (shouldBroadcast) {
+                broadcastState({ type: 'DISMISS' });
+            }
+        }
+
+        // =====================================================================
+        // CANVAS BACKGROUND, SCALE & OBS CLEAN MODE
+        // =====================================================================
+        function setCanvasBg(mode) {
+            state.canvasBg = mode;
+            const canvas = document.getElementById('broadcast-canvas');
+            canvas.classList.remove('bg-mode-studio', 'bg-mode-chroma', 'bg-mode-transparent');
+            canvas.classList.add(`bg-mode-${mode}`);
+
+            if (mode === 'transparent') {
+                document.body.classList.add('obs-true-transparent');
+            } else {
+                document.body.classList.remove('obs-true-transparent');
+            }
+
+            ['studio', 'chroma', 'transparent'].forEach(m => {
+                const btn = document.getElementById(`btn-bg-${m}`);
+                if (m === mode) {
+                    btn.className = 'px-2.5 py-1.5 rounded-lg bg-studio-700 text-white transition flex items-center gap-1.5';
+                } else {
+                    btn.className = 'px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-white transition flex items-center gap-1.5';
+                }
+            });
+            broadcastState();
+        }
+
+        function setOverlayScale(val) {
+            state.overlayScale = parseInt(val, 10);
+            document.getElementById('scale-value').textContent = `${state.overlayScale}%`;
+            document.getElementById('scorebug-wrapper').style.transform = `scale(${state.overlayScale / 100})`;
+            broadcastState();
+        }
+
+        function toggleOBSMode() {
+            state.obsCleanMode = !state.obsCleanMode;
+            const controlPanel = document.getElementById('control-panel');
+            const canvas = document.getElementById('broadcast-canvas');
+            const exitPill = document.getElementById('obs-exit-pill');
+
+            if (state.obsCleanMode) {
+                document.body.classList.add('obs-clean-mode');
+                controlPanel.classList.add('hidden');
+                canvas.classList.remove('h-[46vh]', 'min-h-[340px]', 'border-b', 'border-studio-700/70');
+                canvas.classList.add('h-screen');
+                exitPill.classList.remove('hidden');
+            } else {
+                document.body.classList.remove('obs-clean-mode');
+                controlPanel.classList.remove('hidden');
+                canvas.classList.add('h-[46vh]', 'min-h-[340px]', 'border-b', 'border-studio-700/70');
+                canvas.classList.remove('h-screen');
+                exitPill.classList.add('hidden');
+            }
+        }
+
+        // Keyboard Shortcuts: 'H' toggles OBS Clean Mode, 'Escape' closes modal
+        document.addEventListener('keydown', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                if (e.key === 'Enter' && !document.getElementById('studio-modal-backdrop').classList.contains('hidden')) {
+                    confirmStudioModal();
+                }
+                return;
+            }
+            if (e.key.toLowerCase() === 'h') {
+                toggleOBSMode();
+            } else if (e.key === 'Escape') {
+                closeStudioModal();
+            }
+        });
+
+        // HTML Sanitization Helper
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        // =====================================================================
+        // MASTER UI RENDERER
+        // =====================================================================
+        function renderAll() {
+            // Competition Tag
+            document.getElementById('overlay-comp-tag').textContent = state.compTag;
+            document.getElementById('input-comp-tag').value = state.compTag;
+
+            // Sync Tournament, Match & Venue inputs if not actively focused
+            if (document.activeElement.id !== 'input-tournament-name') {
+                document.getElementById('input-tournament-name').value = state.matchInfo.tournament;
+            }
+            if (document.activeElement.id !== 'input-match-stage') {
+                document.getElementById('input-match-stage').value = state.matchInfo.matchStage;
+            }
+            if (document.activeElement.id !== 'input-venue-name') {
+                document.getElementById('input-venue-name').value = state.matchInfo.venue;
+            }
+            if (document.activeElement.id !== 'input-match-subtitle') {
+                document.getElementById('input-match-subtitle').value = state.matchInfo.subtitle;
+            }
+            updateLowerThirdControlIndicators();
+
+            // Teams & Scores
+            ['home', 'away'].forEach(side => {
+                const t = state[side];
+                const bgCol = t.bgColor || '#1e293b';
+                document.getElementById(`overlay-${side}-code`).textContent = t.code;
+                document.getElementById(`overlay-${side}-score`).textContent = t.score;
+                document.getElementById(`overlay-${side}-color-bar`).style.backgroundColor = t.color;
+                document.getElementById(`overlay-${side}-crest`).style.backgroundColor = t.color;
+                document.getElementById(`overlay-${side}-block`).style.background = side === 'home'
+                    ? `linear-gradient(90deg, #090d16 0%, ${bgCol} 100%)`
+                    : `linear-gradient(270deg, #090d16 0%, ${bgCol} 100%)`;
+
+                document.getElementById(`ctrl-${side}-score`).textContent = t.score;
+                document.getElementById(`ctrl-${side}-red`).textContent = t.redCards;
+
+                // Sync inputs if not actively focused
+                if (document.activeElement.id !== `input-${side}-code`) {
+                    document.getElementById(`input-${side}-code`).value = t.code;
+                }
+                if (document.activeElement.id !== `input-${side}-name`) {
+                    document.getElementById(`input-${side}-name`).value = t.name;
+                }
+                document.getElementById(`input-${side}-color`).value = t.color;
+                document.getElementById(`input-${side}-bg-color`).value = bgCol;
+
+                // Render red cards
+                const redContainer = document.getElementById(`overlay-${side}-redcards`);
+                if (redContainer) {
+                    redContainer.innerHTML = '';
+                    for (let i = 0; i < t.redCards; i++) {
+                        const cardEl = document.createElement('span');
+                        cardEl.className = 'w-1.5 h-2 bg-rose-500 rounded-[1px] inline-block shadow-sm';
+                        redContainer.appendChild(cardEl);
+                    }
+                }
+            });
+
+            // Period & Added Time
+            document.getElementById('overlay-period').textContent = state.period;
+            document.querySelectorAll('.period-btn').forEach(btn => {
+                if (btn.dataset.period === state.period) {
+                    btn.className = 'period-btn py-1.5 rounded-lg text-xs font-bold bg-indigo-600 text-white border border-indigo-500 transition cursor-pointer';
+                } else {
+                    btn.className = 'period-btn py-1.5 rounded-lg text-xs font-bold bg-studio-800 text-slate-300 border border-studio-700 hover:border-indigo-500 transition cursor-pointer';
+                }
+            });
+
+            const addedBox = document.getElementById('overlay-added-time-box');
+            document.getElementById('ctrl-added-time').textContent = `+${state.addedTime}`;
+            if (state.addedTime > 0) {
+                addedBox.classList.remove('hidden');
+                addedBox.classList.add('flex');
+                document.getElementById('overlay-added-time').textContent = state.addedTime;
+            } else {
+                addedBox.classList.add('hidden');
+                addedBox.classList.remove('flex');
+            }
+
+            // Penalties Sub-bar
+            const penOverlay = document.getElementById('overlay-penalties-bar');
+            const penCtrl = document.getElementById('ctrl-penalties-panel');
+            if (state.period === 'PEN') {
+                penOverlay.classList.remove('hidden');
+                penCtrl.classList.remove('hidden');
+                document.getElementById('pen-home-label').textContent = state.home.code;
+                document.getElementById('pen-away-label').textContent = state.away.code;
+                document.getElementById('ctrl-pen-home-lbl').textContent = state.home.code;
+                document.getElementById('ctrl-pen-away-lbl').textContent = state.away.code;
+
+                ['home', 'away'].forEach(side => {
+                    const dotsEl = document.getElementById(`pen-${side}-dots`);
+                    dotsEl.innerHTML = '';
+                    const kicks = state[side].penalties;
+                    const slots = Math.max(5, kicks.length);
+                    for (let i = 0; i < slots; i++) {
+                        const dot = document.createElement('span');
+                        if (i < kicks.length) {
+                            dot.className = kicks[i]
+                                ? 'w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm'
+                                : 'w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm';
+                        } else {
+                            dot.className = 'w-2.5 h-2.5 rounded-full bg-slate-700 border border-white/15';
+                        }
+                        dotsEl.appendChild(dot);
+                    }
+                });
+            } else {
+                penOverlay.classList.add('hidden');
+                penCtrl.classList.add('hidden');
+            }
+
+            updateClockUI();
+            renderStatsCard();
+            setCanvasBg(state.canvasBg);
+            document.getElementById('scale-slider').value = state.overlayScale;
+            document.getElementById('scale-value').textContent = `${state.overlayScale}%`;
+            document.getElementById('scorebug-wrapper').style.transform = `scale(${state.overlayScale / 100})`;
+        }
+
+        // Open standalone overlayer.html in a clean broadcast popup/tab
+        function openStandaloneOverlayer(e) {
+            if (e) e.preventDefault();
+            broadcastState();
+            window.open('overlayer.html', 'ProCastOverlayerWindow', 'width=1280,height=720,menubar=no,toolbar=no,location=no,status=no');
+        }
+
+        // Copy standalone overlayer.html URL for OBS Browser Source
+        function copyOverlayerUrl() {
+            const url = new URL('overlayer.html', window.location.href).href;
+            const tempInput = document.createElement('input');
+            tempInput.value = url;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+
+            const label = document.getElementById('copy-overlayer-label');
+            if (label) {
+                label.textContent = 'Copied!';
+                setTimeout(() => { label.textContent = 'Copy Link'; }, 2000);
+            }
+        }
+
+        // Boot Application
+        window.addEventListener('DOMContentLoaded', () => {
+            loadSavedState();
+            renderAll();
+            if (state.activeLowerThirdPayload) {
+                renderLowerThird(state.activeLowerThirdPayload, false);
+            }
+        });
+
+        // Explicitly bind inline button handlers to window for iframe/blob safety
+        Object.assign(window, {
+            openStandaloneOverlayer,
+            copyOverlayerUrl,
+            triggerInfoLowerThird,
+            updateMatchMetadata,
+            autoFillMatchTitle,
+            togglePinLowerThird,
+            dismissLowerThird,
+            triggerSummaryBanner,
+            toggleClock,
+            resetClock,
+            applyCustomTime,
+            setPeriod,
+            adjustAddedTime,
+            updateCompTag,
+            updateTeam,
+            changeScore,
+            adjustRedCards,
+            addPenaltyKick,
+            resetPenalties,
+            toggleStatsOverlay,
+            updatePossession,
+            adjustStat,
+            openGoalModal,
+            openEventModal,
+            openSubModal,
+            closeStudioModal,
+            confirmStudioModal,
+            setCanvasBg,
+            setOverlayScale,
+            toggleOBSMode
+        });
+    </script>
+</body>
+</html>
