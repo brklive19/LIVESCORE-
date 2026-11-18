@@ -1,1 +1,722 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProCast Football Live Broadcast Overlayer (OBS Output)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter & Rajdhani for sleek broadcast typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Rajdhani:wght@600;700;800&display=swap" rel="stylesheet">
 
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        display: ['Rajdhani', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            user-select: none;
+            background: transparent;
+        }
+
+        .font-broadcast {
+            font-family: 'Rajdhani', sans-serif;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Background Modes synced from Controller */
+        .bg-mode-studio {
+            background: radial-gradient(circle at 50% 30%, #1e293b 0%, #090b10 100%);
+        }
+
+        .bg-mode-chroma {
+            background-color: #00b140 !important;
+        }
+
+        .bg-mode-transparent {
+            background-color: transparent !important;
+        }
+
+        .scorebug-shadow {
+            box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.65), 0 0 1px 1px rgba(255, 255, 255, 0.12);
+        }
+
+        @keyframes slideInUp {
+            0% {
+                opacity: 0;
+                transform: translateY(36px) scale(0.96);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        @keyframes slideOutDown {
+            0% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+            100% {
+                opacity: 0;
+                transform: translateY(28px) scale(0.97);
+            }
+        }
+
+        @keyframes goalPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.03); }
+        }
+
+        @keyframes shimmerSweep {
+            0% { transform: translateX(-120%) skewX(-20deg); }
+            100% { transform: translateX(220%) skewX(-20deg); }
+        }
+
+        .banner-enter {
+            animation: slideInUp 0.48s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        .banner-exit {
+            animation: slideOutDown 0.38s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+        }
+
+        .goal-glow {
+            animation: goalPulse 1.6s ease-in-out infinite;
+        }
+
+        .shimmer-bar::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 45%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.35), transparent);
+            animation: shimmerSweep 2.2s infinite;
+        }
+
+        .stats-panel-transition {
+            transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+    </style>
+</head>
+<body id="overlayer-root" class="bg-mode-transparent text-slate-100 w-screen h-screen flex flex-col justify-between p-6 sm:p-10">
+
+    <!-- Top Row: Scorebug (Top-Left) & Subtle Hover Back-to-Controller Link -->
+    <div class="flex items-start justify-between w-full z-20">
+        
+        <!-- MAIN TV BROADCAST SCOREBUG -->
+        <div id="scorebug-wrapper" class="flex flex-col items-start transition-transform duration-300 origin-top-left">
+            <div class="flex items-stretch h-12 sm:h-14 rounded-xl overflow-hidden scorebug-shadow bg-slate-950/95 backdrop-blur-md border border-white/15">
+                
+                <!-- Competition / Broadcaster Accent Badge -->
+                <div class="bg-gradient-to-b from-indigo-600 to-indigo-800 px-2.5 sm:px-3 flex flex-col items-center justify-center border-r border-white/15">
+                    <svg class="w-4 h-4 sm:w-5 sm:h-5 text-white drop-shadow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polygon points="12 7 16.5 10.2 14.8 15.5 9.2 15.5 7.5 10.2"/>
+                    </svg>
+                    <span id="overlay-comp-tag" class="text-[9px] font-black tracking-widest uppercase text-indigo-100 leading-none mt-0.5">LIVE</span>
+                </div>
+
+                <!-- HOME TEAM BLOCK -->
+                <div id="overlay-home-block" class="relative flex items-center pl-3 pr-2.5 sm:pl-3.5 sm:pr-3 transition-colors duration-300" style="background: linear-gradient(90deg, #090d16 0%, #1e293b 100%);">
+                    <div id="overlay-home-color-bar" class="w-1.5 h-8 rounded-full mr-2.5 shadow-sm transition-colors duration-300" style="background-color: #ef4444;"></div>
+                    <div id="overlay-home-crest" class="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center mr-2 text-white font-black text-xs shadow-inner border border-white/20 shrink-0" style="background-color: #ef4444;">
+                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3z"/></svg>
+                    </div>
+                    <div class="flex flex-col justify-center">
+                        <span id="overlay-home-code" class="font-broadcast font-extrabold text-xl sm:text-2xl tracking-wider text-white leading-none drop-shadow">ARS</span>
+                        <div id="overlay-home-redcards" class="flex items-center gap-1 mt-0.5 h-2"></div>
+                    </div>
+                </div>
+
+                <!-- SCOREBOARD CENTER BOX -->
+                <div class="flex items-center bg-white text-slate-950 px-3 sm:px-4 font-broadcast font-extrabold text-2xl sm:text-3xl tracking-tight shadow-inner">
+                    <span id="overlay-home-score" class="min-w-[1.1ch] text-center">2</span>
+                    <span class="mx-1.5 text-slate-400 text-lg sm:text-xl font-bold">-</span>
+                    <span id="overlay-away-score" class="min-w-[1.1ch] text-center">1</span>
+                </div>
+
+                <!-- AWAY TEAM BLOCK -->
+                <div id="overlay-away-block" class="relative flex items-center pl-2.5 pr-3 sm:pl-3 sm:pr-3.5 transition-colors duration-300" style="background: linear-gradient(270deg, #090d16 0%, #1e293b 100%);">
+                    <div class="flex flex-col items-end justify-center">
+                        <span id="overlay-away-code" class="font-broadcast font-extrabold text-xl sm:text-2xl tracking-wider text-white leading-none drop-shadow">MCI</span>
+                        <div id="overlay-away-redcards" class="flex items-center justify-end gap-1 mt-0.5 h-2"></div>
+                    </div>
+                    <div id="overlay-away-crest" class="w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center ml-2 text-white font-black text-xs shadow-inner border border-white/20 shrink-0" style="background-color: #38bdf8;">
+                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3z"/></svg>
+                    </div>
+                    <div id="overlay-away-color-bar" class="w-1.5 h-8 rounded-full ml-2.5 shadow-sm transition-colors duration-300" style="background-color: #38bdf8;"></div>
+                </div>
+
+                <!-- MATCH CLOCK & HALF INDICATOR -->
+                <div class="flex items-center bg-slate-950 border-l border-white/15 px-3 sm:px-3.5 gap-2">
+                    <span id="overlay-period" class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-broadcast font-bold text-xs sm:text-sm tracking-wider uppercase">2H</span>
+                    <span id="overlay-clock" class="font-broadcast font-bold text-xl sm:text-2xl text-white tracking-wide w-[54px] sm:w-[62px] text-center">67:14</span>
+                </div>
+
+                <!-- STOPPAGE / ADDED TIME BADGE -->
+                <div id="overlay-added-time-box" class="hidden items-center justify-center bg-amber-400 text-slate-950 px-2.5 font-broadcast font-extrabold text-base sm:text-lg tracking-tight border-l border-amber-500">
+                    +<span id="overlay-added-time">3</span>
+                </div>
+            </div>
+
+            <!-- Penalties Shootout Tracker -->
+            <div id="overlay-penalties-bar" class="hidden mt-1.5 bg-slate-950/90 backdrop-blur-md border border-white/15 rounded-lg px-3 py-1.5 scorebug-shadow flex items-center gap-4 text-xs">
+                <span class="font-bold tracking-wider uppercase text-amber-400">PENALTIES</span>
+                <div class="flex items-center gap-1.5">
+                    <span id="pen-home-label" class="font-bold text-slate-300">ARS</span>
+                    <div id="pen-home-dots" class="flex gap-1"></div>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <span id="pen-away-label" class="font-bold text-slate-300">MCI</span>
+                    <div id="pen-away-dots" class="flex gap-1"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hover-Only Quick Link to Controller -->
+        <div class="opacity-0 hover:opacity-100 transition-opacity duration-200">
+            <a href="index.html" target="_blank" rel="noopener noreferrer" class="flex items-center gap-2 bg-slate-900/90 text-white text-xs font-semibold px-3.5 py-2 rounded-full border border-white/20 shadow-lg backdrop-blur-md">
+                <span>Open Controller</span>
+            </a>
+        </div>
+    </div>
+
+    <!-- Center Overlay: MATCH STATS COMPARISON CARD -->
+    <div id="overlay-stats-card" class="hidden opacity-0 scale-95 stats-panel-transition self-center my-auto z-20 w-full max-w-md bg-slate-950/95 backdrop-blur-xl border border-white/15 rounded-2xl overflow-hidden scorebug-shadow">
+        <div class="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 px-5 py-3 border-b border-white/10 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <span id="stats-home-dot" class="w-3 h-3 rounded-full" style="background-color: #ef4444;"></span>
+                <span id="stats-home-name" class="font-broadcast font-bold text-base tracking-wider uppercase text-white">ARSENAL</span>
+            </div>
+            <span class="text-[11px] font-extrabold tracking-[0.2em] uppercase text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-400/30">MATCH STATS</span>
+            <div class="flex items-center gap-2">
+                <span id="stats-away-name" class="font-broadcast font-bold text-base tracking-wider uppercase text-white">MAN CITY</span>
+                <span id="stats-away-dot" class="w-3 h-3 rounded-full" style="background-color: #38bdf8;"></span>
+            </div>
+        </div>
+
+        <div class="p-4 space-y-3 text-sm">
+            <div>
+                <div class="flex justify-between font-broadcast font-bold text-base mb-1">
+                    <span id="stat-val-poss-home" class="text-white">54%</span>
+                    <span class="text-xs font-sans font-semibold uppercase tracking-wider text-slate-400">Possession</span>
+                    <span id="stat-val-poss-away" class="text-white">46%</span>
+                </div>
+                <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden flex gap-0.5">
+                    <div id="stat-bar-poss-home" class="h-full transition-all duration-500" style="width: 54%; background-color: #ef4444;"></div>
+                    <div id="stat-bar-poss-away" class="h-full transition-all duration-500" style="width: 46%; background-color: #38bdf8;"></div>
+                </div>
+            </div>
+
+            <div>
+                <div class="flex justify-between font-broadcast font-bold text-base mb-1">
+                    <span id="stat-val-shots-home" class="text-white">12</span>
+                    <span class="text-xs font-sans font-semibold uppercase tracking-wider text-slate-400">Total Shots</span>
+                    <span id="stat-val-shots-away" class="text-white">9</span>
+                </div>
+                <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden flex gap-0.5">
+                    <div id="stat-bar-shots-home" class="h-full transition-all duration-500" style="width: 57%; background-color: #ef4444;"></div>
+                    <div id="stat-bar-shots-away" class="h-full transition-all duration-500" style="width: 43%; background-color: #38bdf8;"></div>
+                </div>
+            </div>
+
+            <div>
+                <div class="flex justify-between font-broadcast font-bold text-base mb-1">
+                    <span id="stat-val-sot-home" class="text-white">5</span>
+                    <span class="text-xs font-sans font-semibold uppercase tracking-wider text-slate-400">Shots on Target</span>
+                    <span id="stat-val-sot-away" class="text-white">4</span>
+                </div>
+                <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden flex gap-0.5">
+                    <div id="stat-bar-sot-home" class="h-full transition-all duration-500" style="width: 55%; background-color: #ef4444;"></div>
+                    <div id="stat-bar-sot-away" class="h-full transition-all duration-500" style="width: 45%; background-color: #38bdf8;"></div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 pt-1">
+                <div class="bg-slate-900/90 border border-white/10 rounded-xl px-3 py-2 flex items-center justify-between">
+                    <span id="stat-val-corners-home" class="font-broadcast font-bold text-lg text-white">6</span>
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Corners</span>
+                    <span id="stat-val-corners-away" class="font-broadcast font-bold text-lg text-white">4</span>
+                </div>
+                <div class="bg-slate-900/90 border border-white/10 rounded-xl px-3 py-2 flex items-center justify-between">
+                    <span id="stat-val-fouls-home" class="font-broadcast font-bold text-lg text-white">8</span>
+                    <span class="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Fouls</span>
+                    <span id="stat-val-fouls-away" class="font-broadcast font-bold text-lg text-white">11</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Row: LOWER THIRD / EVENT POP-UP BANNER -->
+    <div id="lower-third-container" class="w-full flex justify-center sm:justify-start z-30 pointer-events-none min-h-[76px]"></div>
+
+    <script>
+        const syncChannel = ('BroadcastChannel' in window) ? new BroadcastChannel('procast_football_overlay_v1') : null;
+        const STORAGE_KEY = 'procast_football_state_v1';
+
+        let state = {
+            compTag: 'LIVE',
+            seconds: 4034,
+            running: false,
+            period: '2H',
+            addedTime: 3,
+            canvasBg: 'transparent',
+            overlayScale: 100,
+            showStats: false,
+            pinLowerThird: false,
+            activeLowerThirdType: null,
+            activeLowerThirdPayload: null,
+            matchInfo: {
+                tournament: 'SUPER CUP 2026',
+                matchStage: 'FINAL • ARSENAL vs MAN CITY',
+                venue: 'KALAHANDI STADIUM, BHAWANIPATNA',
+                subtitle: 'LIVE BROADCAST • KICKOFF 19:30'
+            },
+            home: {
+                name: 'Arsenal',
+                code: 'ARS',
+                color: '#ef4444',
+                bgColor: '#1e293b',
+                score: 2,
+                redCards: 0,
+                penalties: []
+            },
+            away: {
+                name: 'Man City',
+                code: 'MCI',
+                color: '#38bdf8',
+                bgColor: '#1e293b',
+                score: 1,
+                redCards: 0,
+                penalties: []
+            },
+            stats: {
+                possHome: 54,
+                shotsHome: 12,
+                shotsAway: 9,
+                sotHome: 5,
+                sotAway: 4,
+                cornersHome: 6,
+                cornersAway: 4,
+                foulsHome: 8,
+                foulsAway: 11
+            }
+        };
+
+        let bannerTimeout = null;
+
+        function formatClock(totalSeconds) {
+            const mins = Math.floor(totalSeconds / 60);
+            const secs = totalSeconds % 60;
+            return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+        }
+
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function loadInitialState() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    state = {
+                        ...state,
+                        ...parsed,
+                        home: { ...state.home, ...(parsed.home || {}) },
+                        away: { ...state.away, ...(parsed.away || {}) },
+                        matchInfo: { ...state.matchInfo, ...(parsed.matchInfo || {}) }
+                    };
+                }
+            } catch (e) {
+                console.warn('Overlayer load fallback:', e);
+            }
+        }
+
+        function renderLowerThird(payload, animateEntry = true) {
+            const container = document.getElementById('lower-third-container');
+            if (bannerTimeout) clearTimeout(bannerTimeout);
+
+            // Ensure only one lower-third is displayed at a time
+            container.innerHTML = '';
+
+            const animClass = animateEntry ? 'banner-enter' : '';
+            let html = '';
+
+            if (payload.type === 'GOAL') {
+                html = `
+                <div id="active-banner" class="${animClass} goal-glow relative overflow-hidden flex items-stretch rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 max-w-xl w-full sm:w-auto">
+                    <div class="w-2.5 shrink-0" style="background-color: ${payload.teamColor};"></div>
+                    <div class="relative overflow-hidden shimmer-bar bg-gradient-to-r from-emerald-500 to-teal-600 px-5 py-3 flex flex-col justify-center items-center text-slate-950">
+                        <span class="font-broadcast font-black text-2xl sm:text-3xl tracking-widest leading-none">GOAL!</span>
+                        <span class="text-[10px] font-extrabold uppercase tracking-widest mt-0.5 text-slate-900">${escapeHtml(payload.teamCode)}</span>
+                    </div>
+                    <div class="px-5 py-3 flex items-center justify-between gap-6 bg-gradient-to-r from-slate-900 to-slate-950 flex-1">
+                        <div>
+                            <div class="text-[11px] font-bold uppercase tracking-wider text-emerald-400">${escapeHtml(payload.teamName)}</div>
+                            <div class="font-broadcast font-extrabold text-xl sm:text-2xl text-white tracking-wide leading-tight">${escapeHtml(payload.player)}</div>
+                        </div>
+                        <div class="px-3 py-1 rounded-lg bg-white/10 border border-white/15 font-broadcast font-extrabold text-xl text-amber-300">
+                            ${escapeHtml(payload.minute)}
+                        </div>
+                    </div>
+                </div>`;
+            } else if (payload.type === 'YELLOW' || payload.type === 'RED') {
+                const isYellow = payload.type === 'YELLOW';
+                const badgeBg = isYellow ? 'bg-amber-400 text-slate-950' : 'bg-rose-600 text-white';
+                const titleText = isYellow ? 'YELLOW CARD' : 'RED CARD';
+                const accentText = isYellow ? 'text-amber-400' : 'text-rose-400';
+
+                html = `
+                <div id="active-banner" class="${animClass} flex items-stretch rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 overflow-hidden max-w-lg w-full sm:w-auto">
+                    <div class="w-2 shrink-0" style="background-color: ${payload.teamColor};"></div>
+                    <div class="${badgeBg} px-4 py-3 flex items-center gap-2.5">
+                        <div class="w-4 h-6 rounded-[3px] ${isYellow ? 'bg-slate-950/20 border border-slate-950/40' : 'bg-white/25 border border-white/40'}"></div>
+                        <span class="font-broadcast font-extrabold text-lg sm:text-xl tracking-wider leading-none">${titleText}</span>
+                    </div>
+                    <div class="px-5 py-3 flex items-center justify-between gap-5 flex-1">
+                        <div>
+                            <div class="text-[11px] font-bold uppercase tracking-wider ${accentText}">${escapeHtml(payload.teamName)}</div>
+                            <div class="font-broadcast font-bold text-xl text-white leading-tight">${escapeHtml(payload.player)}</div>
+                        </div>
+                        <span class="font-broadcast font-bold text-lg text-slate-300 bg-white/10 px-2.5 py-0.5 rounded-lg">${escapeHtml(payload.minute)}</span>
+                    </div>
+                </div>`;
+            } else if (payload.type === 'SUB') {
+                html = `
+                <div id="active-banner" class="${animClass} flex items-stretch rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 overflow-hidden max-w-xl w-full sm:w-auto">
+                    <div class="w-2 shrink-0" style="background-color: ${payload.teamColor};"></div>
+                    <div class="bg-slate-900 px-4 py-3 flex flex-col justify-center border-r border-white/10">
+                        <span class="text-[10px] font-extrabold tracking-widest uppercase text-sky-400">SUBSTITUTION</span>
+                        <span class="font-broadcast font-bold text-lg text-white leading-tight">${escapeHtml(payload.teamName)}</span>
+                    </div>
+                    <div class="px-4 py-2.5 flex flex-col justify-center gap-1 min-w-[210px]">
+                        <div class="flex items-center gap-2 text-sm">
+                            <span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-extrabold text-[10px]">IN</span>
+                            <span class="font-broadcast font-bold text-base text-white leading-none">${escapeHtml(payload.playerIn)}</span>
+                        </div>
+                        <div class="flex items-center gap-2 text-sm">
+                            <span class="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 font-extrabold text-[10px]">OUT</span>
+                            <span class="font-broadcast font-semibold text-base text-slate-400 leading-none">${escapeHtml(payload.playerOut)}</span>
+                        </div>
+                    </div>
+                </div>`;
+            } else if (payload.type === 'SUMMARY') {
+                html = `
+                <div id="active-banner" class="${animClass} flex items-stretch rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 overflow-hidden">
+                    <div class="bg-indigo-600 px-4 py-3 flex items-center">
+                        <span class="font-broadcast font-extrabold text-base sm:text-lg tracking-widest uppercase text-white">${escapeHtml(payload.label)}</span>
+                    </div>
+                    <div class="flex items-center px-4 py-2.5 gap-3">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2.5 h-6 rounded-full" style="background-color: ${payload.homeColor};"></span>
+                            <span class="font-broadcast font-bold text-xl text-white uppercase">${escapeHtml(payload.homeName)}</span>
+                        </div>
+                        <div class="bg-white text-slate-950 px-3 py-0.5 rounded-lg font-broadcast font-extrabold text-2xl">
+                            ${payload.homeScore} - ${payload.awayScore}
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="font-broadcast font-bold text-xl text-white uppercase">${escapeHtml(payload.awayName)}</span>
+                            <span class="w-2.5 h-6 rounded-full" style="background-color: ${payload.awayColor};"></span>
+                        </div>
+                    </div>
+                </div>`;
+            } else if (payload.type === 'TOURNAMENT') {
+                html = `
+                <div id="active-banner" class="${animClass} relative overflow-hidden flex items-stretch rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 max-w-2xl w-full sm:w-auto">
+                    <div class="w-2.5 bg-gradient-to-b from-amber-400 to-amber-600 shrink-0"></div>
+                    <div class="relative overflow-hidden shimmer-bar bg-gradient-to-br from-amber-500 to-amber-600 px-4 py-3 flex items-center justify-center text-slate-950">
+                        <svg class="w-7 h-7 drop-shadow-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
+                        </svg>
+                    </div>
+                    <div class="px-5 py-3 flex flex-col justify-center bg-gradient-to-r from-slate-900 via-slate-900 to-slate-950">
+                        <div class="flex items-center gap-2">
+                            <span class="px-2 py-0.5 rounded bg-amber-400/15 border border-amber-400/30 text-[10px] font-extrabold tracking-widest uppercase text-amber-300">${escapeHtml(payload.subtitle)}</span>
+                        </div>
+                        <div class="font-broadcast font-black text-2xl sm:text-3xl text-white tracking-wider uppercase leading-tight mt-0.5">${escapeHtml(payload.tournament)}</div>
+                        <div class="text-xs font-bold tracking-widest uppercase text-slate-300 mt-0.5">${escapeHtml(payload.matchStage)}</div>
+                    </div>
+                </div>`;
+            } else if (payload.type === 'MATCH') {
+                const homeBg = payload.homeBgColor || '#1e293b';
+                const awayBg = payload.awayBgColor || '#1e293b';
+                html = `
+                <div id="active-banner" class="${animClass} flex flex-col rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 overflow-hidden max-w-2xl w-full sm:w-auto">
+                    <div class="bg-gradient-to-r from-indigo-700 via-indigo-600 to-slate-900 px-4 py-1.5 flex items-center justify-between gap-6 border-b border-white/15">
+                        <span class="text-[11px] font-extrabold tracking-widest uppercase text-white">${escapeHtml(payload.tournament)}</span>
+                        <span class="text-[10px] font-bold tracking-widest uppercase text-indigo-200">${escapeHtml(payload.matchStage)}</span>
+                    </div>
+                    <div class="flex items-stretch">
+                        <div class="w-2.5 shrink-0" style="background-color: ${payload.homeColor};"></div>
+                        <div class="px-5 py-3 flex items-center gap-2.5 flex-1" style="background-color: ${homeBg};">
+                            <span class="w-3.5 h-3.5 rounded-full border border-white/30 shadow shrink-0" style="background-color: ${payload.homeColor};"></span>
+                            <span class="font-broadcast font-extrabold text-2xl sm:text-3xl text-white uppercase tracking-wide leading-none drop-shadow">${escapeHtml(payload.homeName)}</span>
+                        </div>
+                        <div class="px-3.5 py-3 flex items-center justify-center bg-slate-950 border-x border-white/10 font-broadcast font-black text-sm sm:text-base tracking-widest text-amber-400">
+                            VS
+                        </div>
+                        <div class="px-5 py-3 flex items-center justify-end gap-2.5 flex-1" style="background-color: ${awayBg};">
+                            <span class="font-broadcast font-extrabold text-2xl sm:text-3xl text-white uppercase tracking-wide leading-none drop-shadow">${escapeHtml(payload.awayName)}</span>
+                            <span class="w-3.5 h-3.5 rounded-full border border-white/30 shadow shrink-0" style="background-color: ${payload.awayColor};"></span>
+                        </div>
+                        <div class="w-2.5 shrink-0" style="background-color: ${payload.awayColor};"></div>
+                    </div>
+                </div>`;
+            } else if (payload.type === 'VENUE') {
+                html = `
+                <div id="active-banner" class="${animClass} flex items-stretch rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 overflow-hidden max-w-2xl w-full sm:w-auto">
+                    <div class="w-2.5 bg-emerald-500 shrink-0"></div>
+                    <div class="bg-gradient-to-br from-emerald-600 to-teal-700 px-4 py-3 flex items-center justify-center text-white">
+                        <svg class="w-7 h-7 drop-shadow-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>
+                        </svg>
+                    </div>
+                    <div class="px-5 py-3 flex flex-col justify-center bg-gradient-to-r from-slate-900 to-slate-950">
+                        <div class="text-[10px] font-extrabold tracking-[0.2em] uppercase text-emerald-400">LIVE FROM THE VENUE</div>
+                        <div class="font-broadcast font-black text-2xl sm:text-3xl text-white tracking-wide uppercase leading-tight mt-0.5">${escapeHtml(payload.venue)}</div>
+                        <div class="text-xs font-semibold tracking-wider uppercase text-slate-400 mt-0.5">${escapeHtml(payload.tournament)} • ${escapeHtml(payload.subtitle)}</div>
+                    </div>
+                </div>`;
+            } else if (payload.type === 'FULL_INTRO') {
+                const homeBg = payload.homeBgColor || '#1e293b';
+                const awayBg = payload.awayBgColor || '#1e293b';
+                html = `
+                <div id="active-banner" class="${animClass} flex flex-col rounded-2xl scorebug-shadow bg-slate-950/95 backdrop-blur-xl border border-white/20 overflow-hidden max-w-3xl w-full sm:w-auto">
+                    <div class="bg-gradient-to-r from-amber-500 via-amber-400 to-amber-500 px-4 py-1 flex items-center justify-between gap-4 text-slate-950">
+                        <span class="font-broadcast font-black text-sm tracking-widest uppercase">${escapeHtml(payload.tournament)}</span>
+                        <span class="text-[10px] font-extrabold tracking-widest uppercase bg-slate-950/15 px-2 py-0.5 rounded">${escapeHtml(payload.matchStage)}</span>
+                    </div>
+                    <div class="flex items-stretch">
+                        <div class="w-2.5 shrink-0" style="background-color: ${payload.homeColor};"></div>
+                        <div class="px-5 py-3 flex items-center gap-2.5 flex-1" style="background-color: ${homeBg};">
+                            <span class="w-4 h-4 rounded-full border border-white/30 shadow shrink-0" style="background-color: ${payload.homeColor};"></span>
+                            <span class="font-broadcast font-black text-2xl sm:text-3xl text-white uppercase tracking-wide leading-none drop-shadow">${escapeHtml(payload.homeName)}</span>
+                        </div>
+                        <div class="px-3.5 py-3 flex items-center justify-center bg-slate-950 border-x border-white/10 font-broadcast font-black text-base tracking-widest text-indigo-300">
+                            VS
+                        </div>
+                        <div class="px-5 py-3 flex items-center justify-end gap-2.5 flex-1" style="background-color: ${awayBg};">
+                            <span class="font-broadcast font-black text-2xl sm:text-3xl text-white uppercase tracking-wide leading-none drop-shadow">${escapeHtml(payload.awayName)}</span>
+                            <span class="w-4 h-4 rounded-full border border-white/30 shadow shrink-0" style="background-color: ${payload.awayColor};"></span>
+                        </div>
+                        <div class="w-2.5 shrink-0" style="background-color: ${payload.awayColor};"></div>
+                    </div>
+                    <div class="bg-slate-900/95 border-t border-white/10 px-4 py-1.5 flex items-center justify-between gap-4 text-xs">
+                        <div class="flex items-center gap-1.5 text-emerald-400 font-bold tracking-wider uppercase">
+                            <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>
+                            </svg>
+                            <span>${escapeHtml(payload.venue)}</span>
+                        </div>
+                        <span class="text-[10px] font-bold tracking-widest uppercase text-slate-400">${escapeHtml(payload.subtitle)}</span>
+                    </div>
+                </div>`;
+            }
+
+            container.innerHTML = html;
+        }
+
+        function dismissLowerThird() {
+            if (bannerTimeout) {
+                clearTimeout(bannerTimeout);
+                bannerTimeout = null;
+            }
+            const banner = document.getElementById('active-banner');
+            if (banner) {
+                banner.classList.remove('banner-enter', 'goal-glow');
+                banner.classList.add('banner-exit');
+                setTimeout(() => {
+                    const container = document.getElementById('lower-third-container');
+                    if (container && banner.parentNode === container) {
+                        container.innerHTML = '';
+                    }
+                }, 380);
+            }
+        }
+
+        function renderOverlay() {
+            const root = document.getElementById('overlayer-root');
+            root.classList.remove('bg-mode-studio', 'bg-mode-chroma', 'bg-mode-transparent');
+            root.classList.add(state.canvasBg === 'chroma' ? 'bg-mode-chroma' : (state.canvasBg === 'studio' ? 'bg-mode-studio' : 'bg-mode-transparent'));
+
+            document.getElementById('scorebug-wrapper').style.transform = `scale(${(state.overlayScale || 100) / 100})`;
+
+            document.getElementById('overlay-comp-tag').textContent = state.compTag;
+            document.getElementById('overlay-clock').textContent = formatClock(state.seconds);
+            document.getElementById('overlay-period').textContent = state.period;
+
+            ['home', 'away'].forEach(side => {
+                const t = state[side];
+                const bgCol = t.bgColor || '#1e293b';
+                document.getElementById(`overlay-${side}-code`).textContent = t.code;
+                document.getElementById(`overlay-${side}-score`).textContent = t.score;
+                document.getElementById(`overlay-${side}-color-bar`).style.backgroundColor = t.color;
+                document.getElementById(`overlay-${side}-crest`).style.backgroundColor = t.color;
+                document.getElementById(`overlay-${side}-block`).style.background = side === 'home'
+                    ? `linear-gradient(90deg, #090d16 0%, ${bgCol} 100%)`
+                    : `linear-gradient(270deg, #090d16 0%, ${bgCol} 100%)`;
+
+                const redContainer = document.getElementById(`overlay-${side}-redcards`);
+                redContainer.innerHTML = '';
+                for (let i = 0; i < t.redCards; i++) {
+                    const cardEl = document.createElement('span');
+                    cardEl.className = 'w-1.5 h-2 bg-rose-500 rounded-[1px] inline-block shadow-sm';
+                    redContainer.appendChild(cardEl);
+                }
+            });
+
+            const addedBox = document.getElementById('overlay-added-time-box');
+            if (state.addedTime > 0) {
+                addedBox.classList.remove('hidden');
+                addedBox.classList.add('flex');
+                document.getElementById('overlay-added-time').textContent = state.addedTime;
+            } else {
+                addedBox.classList.add('hidden');
+                addedBox.classList.remove('flex');
+            }
+
+            const penOverlay = document.getElementById('overlay-penalties-bar');
+            if (state.period === 'PEN') {
+                penOverlay.classList.remove('hidden');
+                document.getElementById('pen-home-label').textContent = state.home.code;
+                document.getElementById('pen-away-label').textContent = state.away.code;
+                ['home', 'away'].forEach(side => {
+                    const dotsEl = document.getElementById(`pen-${side}-dots`);
+                    dotsEl.innerHTML = '';
+                    const kicks = state[side].penalties || [];
+                    const slots = Math.max(5, kicks.length);
+                    for (let i = 0; i < slots; i++) {
+                        const dot = document.createElement('span');
+                        if (i < kicks.length) {
+                            dot.className = kicks[i]
+                                ? 'w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm'
+                                : 'w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm';
+                        } else {
+                            dot.className = 'w-2.5 h-2.5 rounded-full bg-slate-700 border border-white/15';
+                        }
+                        dotsEl.appendChild(dot);
+                    }
+                });
+            } else {
+                penOverlay.classList.add('hidden');
+            }
+
+            const card = document.getElementById('overlay-stats-card');
+            if (state.showStats) {
+                card.classList.remove('hidden');
+                requestAnimationFrame(() => {
+                    card.classList.remove('opacity-0', 'scale-95');
+                    card.classList.add('opacity-100', 'scale-100');
+                });
+            } else {
+                card.classList.add('opacity-0', 'scale-95');
+                card.classList.remove('opacity-100', 'scale-100');
+                setTimeout(() => {
+                    if (!state.showStats) card.classList.add('hidden');
+                }, 320);
+            }
+
+            document.getElementById('stats-home-name').textContent = state.home.name;
+            document.getElementById('stats-away-name').textContent = state.away.name;
+            document.getElementById('stats-home-dot').style.backgroundColor = state.home.color;
+            document.getElementById('stats-away-dot').style.backgroundColor = state.away.color;
+
+            const possH = state.stats.possHome;
+            const possA = 100 - possH;
+            document.getElementById('stat-val-poss-home').textContent = `${possH}%`;
+            document.getElementById('stat-val-poss-away').textContent = `${possA}%`;
+            document.getElementById('stat-bar-poss-home').style.width = `${possH}%`;
+            document.getElementById('stat-bar-poss-away').style.width = `${possA}%`;
+            document.getElementById('stat-bar-poss-home').style.backgroundColor = state.home.color;
+            document.getElementById('stat-bar-poss-away').style.backgroundColor = state.away.color;
+
+            const setBar = (metric, hVal, aVal) => {
+                document.getElementById(`stat-val-${metric}-home`).textContent = hVal;
+                document.getElementById(`stat-val-${metric}-away`).textContent = aVal;
+                const barH = document.getElementById(`stat-bar-${metric}-home`);
+                const barA = document.getElementById(`stat-bar-${metric}-away`);
+                if (barH && barA) {
+                    const total = hVal + aVal;
+                    const pctH = total === 0 ? 50 : Math.round((hVal / total) * 100);
+                    barH.style.width = `${pctH}%`;
+                    barA.style.width = `${100 - pctH}%`;
+                    barH.style.backgroundColor = state.home.color;
+                    barA.style.backgroundColor = state.away.color;
+                }
+            };
+
+            setBar('shots', state.stats.shotsHome, state.stats.shotsAway);
+            setBar('sot', state.stats.sotHome, state.stats.sotAway);
+            setBar('corners', state.stats.cornersHome, state.stats.cornersAway);
+            setBar('fouls', state.stats.foulsHome, state.stats.foulsAway);
+        }
+
+        if (syncChannel) {
+            syncChannel.onmessage = (event) => {
+                if (event.data && event.data.type === 'STATE_SYNC') {
+                    const prevType = state.activeLowerThirdType;
+                    state = { ...state, ...event.data.state };
+                    renderOverlay();
+                    if (event.data.eventPayload) {
+                        if (event.data.eventPayload.type === 'DISMISS') {
+                            dismissLowerThird();
+                        } else {
+                            renderLowerThird(event.data.eventPayload, true);
+                        }
+                    } else if (!state.activeLowerThirdType && prevType) {
+                        dismissLowerThird();
+                    }
+                }
+            };
+        }
+
+        window.addEventListener('storage', (e) => {
+            if (e.key === STORAGE_KEY && e.newValue) {
+                try {
+                    const parsed = JSON.parse(e.newValue);
+                    const prevPayload = JSON.stringify(state.activeLowerThirdPayload);
+                    state = { ...state, ...parsed };
+                    renderOverlay();
+                    const nextPayload = JSON.stringify(state.activeLowerThirdPayload);
+                    if (state.activeLowerThirdPayload && nextPayload !== prevPayload) {
+                        renderLowerThird(state.activeLowerThirdPayload, true);
+                    } else if (!state.activeLowerThirdPayload && prevPayload !== 'null') {
+                        dismissLowerThird();
+                    }
+                } catch (err) {}
+            }
+        });
+
+        window.addEventListener('DOMContentLoaded', () => {
+            loadInitialState();
+            renderOverlay();
+            if (state.activeLowerThirdPayload) {
+                renderLowerThird(state.activeLowerThirdPayload, false);
+            }
+        });
+    </script>
+</body>
+</html>
